@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>柜见 · 无人售货柜仿真管理台</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+  <!-- HTML负责结构，CSS负责样式，JavaScript负责交互；界面和API由同一个Spring Boot服务提供。 -->
+  <section id="login" class="login-screen"><form id="login-form" class="login-card">
+    <div class="brand-mark">柜</div><span class="eyebrow">PURE SOFTWARE · GRADUATION PROJECT</span>
+    <h1>柜见 · 仿真管理台</h1><p>从商品取放，到每一笔清晰的结算。</p>
+    <label>管理员密码<input id="password" type="password" value="admin123" autocomplete="current-password" required></label>
+    <button class="primary" type="submit">进入管理台 →</button><small>默认仅监听本机 · 全流程纯软件仿真 · 无真实支付</small>
+    <p id="login-error" class="error" role="alert"></p>
+  </form></section>
+  <div id="workspace" class="workspace hidden">
+    <aside><a class="brand" href="/">柜见<span>SIMULATION STUDIO</span></a><div class="aside-label">工作空间</div>
+      <nav id="nav"><button data-tab="dashboard" class="active">◫　经营概览</button><button data-tab="simulator">▦　虚拟售货柜</button><button data-tab="products">◇　商品与库存</button><button data-tab="orders">▤　订单与交易</button><button data-tab="logs">↗　库存流水</button></nav>
+      <div class="aside-footer"><span class="dot"></span> 纯软件仿真环境<p>重量 → RFID → 视觉</p><button id="logout" class="text-button">退出登录</button></div>
+    </aside>
+    <main><header><div><span class="eyebrow">SMART CABINET / CONTROL CENTER</span><h1 id="page-title">经营概览</h1></div><div class="header-actions"><span class="demo-badge">DEMO · 模拟数据</span><button id="refresh">刷新数据 ↻</button></div></header>
+      <div id="content"></div><footer>柜见 · 毕业设计演示系统　|　全部感知数据由仿真操作生成，金额为模拟营业额</footer>
+    </main>
+  </div>
+  <div id="toast" role="status"></div>
+  <dialog id="detail-dialog"><button id="dialog-close" class="dialog-close">关闭 ×</button><h2>订单详情 / 模拟支付记录</h2><pre id="dialog-text"></pre></dialog>
+  <script src="/app.js" defer></script>
+</body></html>
