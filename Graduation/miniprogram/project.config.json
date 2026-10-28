@@ -1,0 +1,9 @@
+{
+  "description": "无人售货柜纯软件仿真：导入本目录到微信开发者工具",
+  "projectname": "柜见-无人售货柜仿真",
+  "appid": "touristappid",
+  "compileType": "miniprogram",
+  "miniprogramRoot": "./",
+  "setting": { "urlCheck": false, "es6": true, "enhance": true, "postcss": true, "minified": true },
+  "condition": {}
+}
