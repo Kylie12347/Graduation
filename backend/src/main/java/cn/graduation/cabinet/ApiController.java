@@ -11,12 +11,14 @@ import static cn.graduation.cabinet.Models.*;
 public class ApiController {
     private final DataStore s; private final AuthService auth; private final ShoppingService shopping;
     private final RfidService rfid;
+    private final StorefrontService storefront;
     private final SimulatorService simulator; private final AdminService admin;
-    public ApiController(DataStore s,AuthService auth,ShoppingService shopping,SimulatorService simulator,AdminService admin,RfidService rfid) {
-        this.s=s;this.auth=auth;this.shopping=shopping;this.simulator=simulator;this.admin=admin;this.rfid=rfid;
+    public ApiController(DataStore s,AuthService auth,ShoppingService shopping,SimulatorService simulator,AdminService admin,RfidService rfid,StorefrontService storefront) {
+        this.s=s;this.auth=auth;this.shopping=shopping;this.simulator=simulator;this.admin=admin;this.rfid=rfid;this.storefront=storefront;
     }
     @PostMapping("/auth/login") public Object login(@Valid @RequestBody Login r){return auth.login(r);}
     @GetMapping("/cabinets") public Object cabinets(){return admin.cabinets();}
+    @GetMapping("/cabinets/{id}/catalog") public Object catalog(@PathVariable String id){return storefront.catalog(id);}
     @GetMapping("/products") public Object products(){return s.products();}
     @PostMapping("/sessions") public Object open(@Valid @RequestBody OpenRequest r,@RequestAttribute Principal principal){return shopping.open(r.cabinetId(),principal);}
     @GetMapping("/sessions") public Object sessions(@RequestAttribute Principal principal){

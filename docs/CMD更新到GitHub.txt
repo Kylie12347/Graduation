@@ -1,19 +1,9 @@
-在CMD中逐行执行，某一步报错就先停止。
-推荐先关闭正在运行的旧后端，保存你自己尚未提交的修改。
+固定源码目录：D:\毕设\Graduation。以下命令在CMD逐条执行，不要粘在同一行。
 
- git clone https://github.com/Kylie12347/Graduation.git "D:\毕设\Graduation-RFID-upload"
- robocopy "C:\Users\longyuan\Documents\Codex\2026-10-27\411-rfid-rfid-rfid\Graduation" "D:\毕设\Graduation-RFID-upload" /E /XD .git target data .idea .build-cache node_modules /XF *.log *.iml project.private.config.json .env
- cd /d "D:\毕设\Graduation-RFID-upload"
- git status
- git add .
- git commit -m "Add per-item RFID tags and snapshot-based sensor fusion"
- git push origin HEAD:main
+cd /d "D:\毕设\Graduation"
+git status
+git add .
+git commit -m "Simplify mini program shopping and add cabinet storefront"
+git push
 
-robocopy返回码0到7通常不表示复制失败，8及以上应停止。复制不删除远程已有的其他文件。
-首次提交如提示身份未设置，在此目录执行：
- git config user.name "Kylie12347"
- git config user.email "填写你的GitHub邮箱"
-然后重新执行commit和push。
-认证出现浏览器授权时使用你的GitHub账号登录，不要把密码交给他人。
-若目标目录已存在，请先检查它的内容，改用另一个不存在的目录，并同步更改以上所有目标目录路径。
-如果Git提示远程分支有新提交：git pull --rebase origin main；如出现冲突应处理后再push，不要强制推送。
+本目录已由用户完成Git初始化、身份配置及远程历史合并，不需要再次git init或拉取无关历史。推送是否成功，以终端结果和GitHub最新提交为准。本次工具未自动推送。

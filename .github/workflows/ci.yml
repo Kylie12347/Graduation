@@ -16,3 +16,4 @@ jobs:
           node-version: '22'
       - run: mvn -B -f backend/pom.xml verify
       - run: node scripts/check-miniprogram.cjs
+      - run: node scripts/test-miniprogram.cjs

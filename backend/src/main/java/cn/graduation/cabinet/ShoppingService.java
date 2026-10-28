@@ -24,12 +24,18 @@ public class ShoppingService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,"无权查看该购物会话");
         return session;
     }
+    /** 柜体行锁内调用。旧柜第一次改变锁状态时补建记录。 */
+    private void setCabinetLock(String cabinetId,boolean locked) {
+        if(s.jdbc().update("UPDATE cabinet_locks SET locked=? WHERE cabinet_id=?",locked,cabinetId)==0)
+            s.jdbc().update("INSERT INTO cabinet_locks(cabinet_id,locked) VALUES(?,?)",cabinetId,locked);
+    }
     @Transactional
     public Map<String,Object> open(String cabinetId, Principal user) {
         Map<String,Object> cabinet=s.one("SELECT * FROM cabinets WHERE id=? FOR UPDATE",cabinetId);
         if(cabinet.get("active_session")!=null) throw new BusinessException("柜体正在购物或等待结算，请稍后再试");
         if(s.jdbc().queryForObject("SELECT COUNT(*) FROM shopping_sessions WHERE user_id=? AND state NOT IN ('PAID','CANCELLED')",Integer.class,user.userId())>0)
             throw new BusinessException("你有未完成的购物会话，请先完成结算");
+        setCabinetLock(cabinetId,false);
         String session=id();
         s.jdbc().update("INSERT INTO shopping_sessions(id,user_id,cabinet_id,state,created_at) VALUES(?,?,?,'OPEN',?)",session,user.userId(),cabinetId,now());
         s.jdbc().update("UPDATE cabinets SET door_open=TRUE,active_session=? WHERE id=?",session,cabinetId);
@@ -65,6 +71,9 @@ public class ShoppingService {
             e.put("result",json.read((String)e.remove("result_json"),FusionResult.class));
             events.add(e);
         }
+        var cabinet=s.one("SELECT c.door_open,COALESCE(l.locked,TRUE) AS locked FROM cabinets c LEFT JOIN cabinet_locks l ON l.cabinet_id=c.id WHERE c.id=?",session.get("cabinet_id"));
+        session.put("doorOpen",cabinet.get("door_open"));
+        session.put("cabinetLocked",cabinet.get("locked"));
         session.put("events",events);
         session.put("pendingCount",events.stream().filter(e->"PENDING".equals(e.get("status"))).count());
         try {session.put("items",basket(sessionId));session.put("basketError","");}
@@ -77,6 +86,9 @@ public class ShoppingService {
         checkOwner(sessionId,user);
         var session=s.lockSession(sessionId);
         if(!"OPEN".equals(session.get("state"))) return detail(sessionId,user); // 重复关柜不重复生成订单。
+        // 管理端“关柜”是纯软件门磁事件；关闭后保持占用，等待确认与支付。
+        s.one("SELECT * FROM cabinets WHERE id=? FOR UPDATE",session.get("cabinet_id"));
+        setCabinetLock((String)session.get("cabinet_id"),false);
         String orderId=id();
         s.jdbc().update("INSERT INTO orders(id,session_id,user_id,cabinet_id,state,items_json,created_at) VALUES(?,?,?,?,'REVIEW','[]',?)",orderId,sessionId,session.get("user_id"),session.get("cabinet_id"),now());
         s.jdbc().update("UPDATE shopping_sessions SET state='REVIEW',closed_at=?,order_id=? WHERE id=?",now(),orderId,sessionId);
@@ -129,6 +141,9 @@ public class ShoppingService {
         }
         if("PAID".equals(order.get("state"))) return order(orderId,user);
         if(!"UNPAID".equals(order.get("state"))) throw new BusinessException("只有待支付订单可以支付");
+        var cabinet=s.one("SELECT * FROM cabinets WHERE id=? FOR UPDATE",order.get("cabinet_id"));
+        if(Boolean.TRUE.equals(cabinet.get("door_open"))) throw new BusinessException("柜门尚未关闭，不能支付");
+        if(!session.get("id").equals(cabinet.get("active_session"))) throw new BusinessException("柜体会话不一致，请联系管理员核对");
         s.jdbc().update("INSERT INTO payments VALUES(?,?,?,?,?,?)",id(),orderId,request.requestKey(),request.success()?"SUCCESS":"FAILED",order.get("total_cents"),now());
         if(!request.success()) return order(orderId,user); // 失败可重试，不增加销量。
         List<OrderItem> items=json.read((String)order.get("items_json"),new TypeReference<>(){});
@@ -139,7 +154,9 @@ public class ShoppingService {
         }
         s.jdbc().update("UPDATE orders SET state='PAID',paid_at=? WHERE id=?",now(),orderId);
         s.jdbc().update("UPDATE shopping_sessions SET state='PAID' WHERE id=?",session.get("id"));
-        s.jdbc().update("UPDATE cabinets SET active_session=NULL WHERE id=?",order.get("cabinet_id"));
+        // 支付、销量、关门锁定和释放柜体在同一事务提交；失败不释放柜体。
+        setCabinetLock((String)order.get("cabinet_id"),true);
+        s.jdbc().update("UPDATE cabinets SET door_open=FALSE,active_session=NULL WHERE id=?",order.get("cabinet_id"));
         return order(orderId,user);
     }
     /** 取消不凭空恢复柜内商品；由后台执行可追溯的“全部归还并取消”。 */
@@ -155,6 +172,8 @@ public class ShoppingService {
         return order(orderId,user);
     }
     void finishCancel(Map<String,Object> session,String orderId) {
+        s.one("SELECT * FROM cabinets WHERE id=? FOR UPDATE",session.get("cabinet_id"));
+        setCabinetLock((String)session.get("cabinet_id"),true);
         s.jdbc().update("UPDATE orders SET state='CANCELLED' WHERE id=?",orderId);
         s.jdbc().update("UPDATE shopping_sessions SET state='CANCELLED' WHERE id=?",session.get("id"));
         s.jdbc().update("UPDATE cabinets SET active_session=NULL,door_open=FALSE WHERE id=?",session.get("cabinet_id"));

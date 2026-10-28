@@ -26,7 +26,7 @@ class ShoppingIntegrationTest {
     String admin,user;
     @BeforeEach void reset() throws Exception {
         // 表名来自固定测试代码，不接受外部输入；仅清理本测试的内存库。
-        for(String table:List.of("rfid_items","rfid_initialized","payments","orders","perception_events","simulation_actions","shopping_sessions","inventory_logs","stocks","products","cabinets")) store.jdbc().update("DELETE FROM "+table);
+        for(String table:List.of("cabinet_locks","rfid_items","rfid_initialized","payments","orders","perception_events","simulation_actions","shopping_sessions","inventory_logs","stocks","products","cabinets")) store.jdbc().update("DELETE FROM "+table);
         seed.run(null);
         admin=call("/auth/login",null,Map.of("role","ADMIN","password","test-password")).get("token").asText();
         user=call("/auth/login",null,Map.of("role","CONSUMER")).get("token").asText();
@@ -150,6 +150,62 @@ class ShoppingIntegrationTest {
         sim(session,"COLA","RETURN",2,false,false);
         assertThat(stock("on_hand","COLA")).isEqualTo(12);
         assertThat(call("/admin/rfid-items?cabinetId=CAB001",admin,null).size()).isEqualTo(40);
+    }
+    @Test void storefrontCatalogIsCabinetScopedAndHidesOperationsData() throws Exception {
+        call("/admin/cabinets",admin,Map.of("id","CAB002","name","社区二号柜","location","社区服务中心"));
+        call("/admin/restock",admin,Map.of("cabinetId","CAB002","productId","COLA","quantity",3));
+        var one=call("/cabinets/CAB001/catalog",user,null);
+        var two=call("/cabinets/CAB002/catalog",user,null);
+        assertThat(one.get("cabinet").get("id").asText()).isEqualTo("CAB001");
+        assertThat(two.get("cabinet").get("name").asText()).isEqualTo("社区二号柜");
+        JsonNode cola=null;
+        for(JsonNode p:two.get("products")) if("COLA".equals(p.get("id").asText())) cola=p;
+        assertThat(cola).isNotNull();
+        assertThat(cola.get("stock").asInt()).isEqualTo(3);
+        assertThat(cola.get("price_cents").asInt()).isEqualTo(350);
+        assertThat(cola.has("sold")).isFalse();
+        assertThat(two.get("cabinet").has("active_session")).isFalse();
+        assertThat(two.get("cabinet").get("available").asBoolean()).isTrue();
+        open();
+        assertThat(call("/cabinets/CAB001/catalog",user,null).get("cabinet").get("available").asBoolean()).isFalse();
+        mvc.perform(get("/api/cabinets/CAB001/catalog")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/cabinets/UNKNOWN/catalog").header("Authorization","Bearer "+user)).andExpect(status().isConflict());
+    }
+    @Test void closedDoorThenPaidLocksCabinetAndFailedPaymentKeepsItOccupied() throws Exception {
+        String session=open();
+        var opened=call("/sessions/"+session,user,null);
+        assertThat(opened.get("doorOpen").asBoolean()).isTrue();
+        assertThat(opened.get("cabinetLocked").asBoolean()).isFalse();
+        sim(session,"COLA","TAKE",1,false,false);
+        var closed=call("/sessions/"+session+"/close",admin,Map.of());
+        assertThat(closed.get("doorOpen").asBoolean()).isFalse();
+        assertThat(closed.get("cabinetLocked").asBoolean()).isFalse();
+        assertThat(closed.get("state").asText()).isEqualTo("REVIEW");
+        String order=closed.get("order_id").asText();
+        call("/orders/"+order+"/confirm",user,Map.of());
+        call("/orders/"+order+"/pay",user,Map.of("requestKey","lock-failed","success",false));
+        assertThat(store.one("SELECT * FROM cabinets WHERE id='CAB001'").get("active_session")).isEqualTo(session);
+        assertThat(store.one("SELECT * FROM cabinet_locks WHERE cabinet_id='CAB001'").get("locked")).isEqualTo(false);
+        call("/orders/"+order+"/pay",user,Map.of("requestKey","lock-success","success",true));
+        assertThat(store.one("SELECT * FROM cabinets WHERE id='CAB001'").get("active_session")).isNull();
+        assertThat(store.one("SELECT * FROM cabinets WHERE id='CAB001'").get("door_open")).isEqualTo(false);
+        assertThat(store.one("SELECT * FROM cabinet_locks WHERE cabinet_id='CAB001'").get("locked")).isEqualTo(true);
+        assertThat(call("/cabinets/CAB001/catalog",user,null).get("cabinet").get("locked").asBoolean()).isTrue();
+        open();
+        assertThat(store.one("SELECT * FROM cabinet_locks WHERE cabinet_id='CAB001'").get("locked")).isEqualTo(false);
+    }
+    @Test void refusesPaymentIfDoorIsOpenAndCancellationLocksReturnedCabinet() throws Exception {
+        String session=open();
+        String order=call("/sessions/"+session+"/close",user,Map.of()).get("order_id").asText();
+        call("/orders/"+order+"/confirm",user,Map.of());
+        store.jdbc().update("UPDATE cabinets SET door_open=TRUE WHERE id='CAB001'");
+        mvc.perform(post("/api/orders/"+order+"/pay").header("Authorization","Bearer "+user)
+            .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(Map.of("requestKey","open-door","success",true))))
+            .andExpect(status().isConflict());
+        assertThat(store.jdbc().queryForObject("SELECT COUNT(*) FROM payments",Integer.class)).isZero();
+        call("/admin/sessions/"+session+"/return-and-cancel",admin,Map.of());
+        assertThat(store.one("SELECT * FROM cabinet_locks WHERE cabinet_id='CAB001'").get("locked")).isEqualTo(true);
+        assertThat(store.one("SELECT * FROM cabinets WHERE id='CAB001'").get("door_open")).isEqualTo(false);
     }
     @Test void concurrentOpenOnlyAllowsOneConsumer() throws Exception {
         ExecutorService pool=Executors.newFixedThreadPool(2);

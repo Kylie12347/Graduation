@@ -1,9 +1,32 @@
 {
-  "pages": ["pages/home/home", "pages/shopping/shopping", "pages/orders/orders"],
-  "window": {"navigationBarTitleText": "柜见 · 自助购物", "navigationBarBackgroundColor": "#f4f7f0", "navigationBarTextStyle": "black", "backgroundColor": "#f4f7f0"},
-  "tabBar": {"color": "#7a8a7e", "selectedColor": "#21654e", "backgroundColor": "#ffffff", "list": [
-    {"pagePath": "pages/home/home", "text": "选柜购物"}, {"pagePath": "pages/orders/orders", "text": "我的订单"}
-  ]},
+  "pages": [
+    "pages/home/home",
+    "pages/shopping/shopping",
+    "pages/orders/orders",
+    "pages/resolve/resolve",
+    "pages/nearby/nearby"
+  ],
+  "window": {
+    "navigationBarTitleText": "柜见 · 自助购物",
+    "navigationBarBackgroundColor": "#f4f7f0",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f4f7f0"
+  },
+  "tabBar": {
+    "color": "#7a8a7e",
+    "selectedColor": "#21654e",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/orders/orders",
+        "text": "我的订单"
+      }
+    ]
+  },
   "style": "v2",
   "sitemapLocation": "sitemap.json"
 }

@@ -17,7 +17,7 @@ public class AdminService {
     private final RfidService rfid;
     private final ZoneId zone;
     public AdminService(DataStore s,JsonCodec json,RfidService rfid,@Value("${app.zone}") String zone) {this.s=s;this.json=json;this.rfid=rfid;this.zone=ZoneId.of(zone);}
-    public List<Map<String,Object>> cabinets() {return s.jdbc().queryForList("SELECT * FROM cabinets ORDER BY id");}
+    public List<Map<String,Object>> cabinets() {return s.jdbc().queryForList("SELECT c.*,COALESCE(l.locked,TRUE) AS locked FROM cabinets c LEFT JOIN cabinet_locks l ON l.cabinet_id=c.id ORDER BY c.id");}
     public List<Map<String,Object>> stocks() {
         List<Map<String,Object>> rows=s.jdbc().queryForList("SELECT st.*,p.name,p.price_cents,p.weight_grams,p.threshold_qty,p.enabled,c.name AS cabinet_name,c.active_session FROM stocks st JOIN products p ON p.id=st.product_id JOIN cabinets c ON c.id=st.cabinet_id ORDER BY st.cabinet_id,st.product_id");
         for(var r:rows) {

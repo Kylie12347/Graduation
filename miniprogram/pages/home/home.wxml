@@ -1,11 +1,19 @@
-<!-- WXML是微信模板语言：{{}}绑定数据，wx:if控制显示，wx:for循环，bindtap绑定点击。 -->
+<!-- 商品卡只展示货架，不绑定购买事件。实际购买仍由开柜后的取放识别。 -->
 <view class="page">
-  <view class="eyebrow">GUIJIAN / SELF-SERVICE SHOPPING</view>
+  <view class="eyebrow">GUIJIAN / EVERYDAY PICKS</view>
   <view class="title">好物在柜，随取随享。</view>
-  <view class="subtitle">选一个柜体，开启你的自助购物。</view>
-  <view class="card" wx:if="{{active}}"><view class="badge-title"><view class="card-title">你有一笔进行中的购物</view><text class="tag">{{active.label}}</text></view><text class="muted">柜体 {{active.cabinet_id}}</text><button class="primary" bindtap="resume">继续购物 / 结算 →</button></view>
-  <view class="card"><view class="card-title">01 · 选择售货柜</view><view class="muted">扫码或输入编号；演示柜体为CAB001。</view><input value="{{cabinetId}}" bindinput="inputCabinet" placeholder="请输入柜体编号" maxlength="40"/><view class="actions"><button class="secondary" bindtap="scan">扫码选柜</button><button class="primary" bindtap="open" loading="{{loading}}" disabled="{{loading || active}}">申请开柜 →</button></view></view>
-  <view class="card"><view class="card-title">附近的虚拟柜体</view><view class="item-row" wx:for="{{cabinets}}" wx:key="id" bindtap="selectCabinet" data-id="{{item.id}}"><view class="icon">▦</view><view class="content"><view>{{item.name}}</view><view class="muted">{{item.id}} · {{item.location}}</view></view><text class="tag {{item.active_session ? 'warn' : ''}}">{{item.active_session ? '占用中' : '可用'}}</text></view><view wx:if="{{!cabinets.length}}" class="empty">启动后端后下拉刷新</view></view>
-  <view class="card"><view class="card-title">02 · 取放与结算</view><view class="steps">小程序申请开柜<br/>电脑端仿真面板模拟取出 / 放回<br/>关柜后核对购物清单<br/>处理异常并完成模拟支付</view></view>
-  <view class="footnote">毕业设计 · 无实体硬件 · 无真实扣款</view>
+  <view class="subtitle">看看柜里有什么，扫码即可开柜。</view>
+  <view class="card error" wx:if="{{error}}">{{error}}<button bindtap="refreshTap">重新加载</button></view>
+  <view class="card" wx:if="{{active}}"><view class="badge-title"><view class="card-title">你有一笔购物待完成</view><text class="tag">{{active.label}}</text></view><view class="muted">{{active.cabinet_id}}</view><button class="primary" bindtap="resume">继续购物 / 结算</button></view>
+  <view class="store-banner card">
+    <view class="badge-title"><view><view class="card-title">{{cabinet ? cabinet.name : '发现身边的售货柜'}}</view><view class="muted">{{cabinet ? cabinet.location : '扫码查看柜内商品'}}</view></view><text class="tag" wx:if="{{bound}}">已扫码绑定</text><text class="tag" wx:elif="{{cabinet}}">商品预览</text></view>
+    <button wx:if="{{!active && bound}}" class="primary" bindtap="openBound" loading="{{opening}}" disabled="{{opening || !cabinet.available}}">{{cabinet.available ? '开启这台售货柜' : '柜体使用中，请稍候'}}</button>
+    <button wx:elif="{{!active}}" class="primary" bindtap="scan" loading="{{opening}}" disabled="{{opening}}">扫码开柜</button>
+    <view class="muted scan-tip" wx:if="{{!active}}">每台柜体有独立二维码，扫码对应唯一柜体。</view>
+  </view>
+  <view class="section-head"><view class="section-title">{{cabinet ? '柜内好物' : '商品展示'}}</view><text class="muted">商品图片为示意图</text></view>
+  <view class="product-grid"><view class="goods-card" wx:for="{{products}}" wx:key="id"><view class="picture"><image src="{{item.image}}" mode="aspectFit" data-index="{{index}}" binderror="imageError"/></view><view class="goods-name">{{item.name}}</view><view class="goods-bottom"><text class="goods-price">¥{{item.price}}</text><text class="stock {{item.stock === 0 ? 'sold-out' : ''}}">{{item.stock > 0 ? '剩余 ' + item.stock + ' 件' : '暂时售罄'}}</text></view></view></view>
+  <view wx:if="{{!products.length}}" class="card empty">{{loading ? '正在加载商品…' : '这台柜体暂未上架商品'}}</view>
+  <view class="card nearby-entry" bindtap="nearby"><view><view class="card-title">附近售货柜</view><view class="muted">查看位置、使用状态与柜内商品</view></view><text class="entry-arrow">→</text></view>
+  <view class="footnote">取出即识别 · 关柜后核对清单 · 模拟支付</view>
 </view>

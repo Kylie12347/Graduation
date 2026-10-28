@@ -51,3 +51,8 @@ CREATE TABLE IF NOT EXISTS rfid_items (
  location VARCHAR(20) NOT NULL, held_session VARCHAR(40)
 );
 CREATE TABLE IF NOT EXISTS rfid_initialized (cabinet_id VARCHAR(40) PRIMARY KEY);
+
+-- 虚拟门锁状态与门是否关闭分开记录，兼容旧数据库，无需删除历史数据。
+CREATE TABLE IF NOT EXISTS cabinet_locks (
+ cabinet_id VARCHAR(40) PRIMARY KEY, locked BOOLEAN NOT NULL DEFAULT TRUE
+);

@@ -1,0 +1,23 @@
+/* 使用代码绘制本地商品包装示意图，无外部图片版权/网络依赖。运行 node scripts/generate-product-assets.cjs 可重建。 */
+const fs=require('node:fs'), path=require('node:path'),zlib=require('node:zlib');
+const width=320,height=360,scale=2,W=width*scale,H=height*scale;
+let pixels;
+const rgb=h=>h.replace('#','').match(/../g).map(v=>parseInt(v,16));
+function paint(x,y,c){if(x>=0&&y>=0&&x<W&&y<H){const i=(y*W+x)*4;pixels[i]=c[0];pixels[i+1]=c[1];pixels[i+2]=c[2];pixels[i+3]=255;}}
+function shape(x,y,w,h,r,color){const c=rgb(color);x*=scale;y*=scale;w*=scale;h*=scale;r*=scale;for(let yy=Math.floor(y);yy<y+h;yy++)for(let xx=Math.floor(x);xx<x+w;xx++){const dx=Math.max(x+r-xx,0,xx-(x+w-r)),dy=Math.max(y+r-yy,0,yy-(y+h-r));if(dx*dx+dy*dy<=r*r)paint(xx,yy,c);}}
+function oval(x,y,rx,ry,color){const c=rgb(color);for(let yy=Math.floor((y-ry)*scale);yy<(y+ry)*scale;yy++)for(let xx=Math.floor((x-rx)*scale);xx<(x+rx)*scale;xx++)if(((xx/scale-x)/rx)**2+((yy/scale-y)/ry)**2<=1)paint(xx,yy,c);}
+const font={A:['01110','10001','10001','11111','10001','10001','10001'],B:['11110','10001','10001','11110','10001','10001','11110'],C:['01111','10000','10000','10000','10000','10000','01111'],E:['11111','10000','10000','11110','10000','10000','11111'],I:['111','010','010','010','010','010','111'],J:['00111','00010','00010','00010','10010','10010','01100'],L:['10000','10000','10000','10000','10000','10000','11111'],O:['01110','10001','10001','10001','10001','10001','01110'],R:['11110','10001','10001','11110','10100','10010','10001'],S:['01111','10000','10000','01110','00001','00001','11110'],T:['11111','00100','00100','00100','00100','00100','00100'],U:['10001','10001','10001','10001','10001','10001','01110'],W:['10001','10001','10001','10101','10101','10101','01010']};
+function text(word,y,size,color){let total=[...word].reduce((n,ch)=>n+(font[ch][0].length+1)*size,0)-size;let x=(width-total)/2;for(const ch of word){const f=font[ch];f.forEach((line,yy)=>[...line].forEach((bit,xx)=>{if(bit==='1')shape(x+xx*size,y+yy*size,size,size,0,color);}));x+=(f[0].length+1)*size;}}
+function crc(buf){let c=0xffffffff;for(const b of buf){c^=b;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0);}return(c^0xffffffff)>>>0;}
+function chunk(type,data){let name=Buffer.from(type),len=Buffer.alloc(4),sum=Buffer.alloc(4);len.writeUInt32BE(data.length);sum.writeUInt32BE(crc(Buffer.concat([name,data])));return Buffer.concat([len,name,data,sum]);}
+function png(){const scan=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++)for(let c=0;c<4;c++){let sum=0;for(let yy=0;yy<scale;yy++)for(let xx=0;xx<scale;xx++)sum+=pixels[(((y*scale+yy)*W+x*scale+xx)*4)+c];scan[y*(width*4+1)+1+x*4+c]=Math.round(sum/(scale*scale));}const header=Buffer.alloc(13);header.writeUInt32BE(width);header.writeUInt32BE(height,4);header[8]=8;header[9]=6;return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),chunk('IDAT',zlib.deflateSync(scan)),chunk('IEND',Buffer.alloc(0))]);}
+const out=path.resolve(__dirname,'../miniprogram/assets/products');fs.mkdirSync(out,{recursive:true});
+for(const kind of ['cola','water','tea','juice','biscuit','generic']){
+ pixels=Buffer.alloc(W*H*4);oval(160,323,78,12,'#dce5d5');
+ if(kind==='cola') {shape(93,57,134,256,28,'#c73531');shape(108,65,13,235,6,'#e8564f');shape(93,63,134,14,6,'#dfe5df');shape(93,296,134,14,6,'#c9d2c9');oval(160,60,60,9,'#e7ece6');oval(164,60,18,5,'#9caaa0');shape(91,157,138,67,8,'#f9eee1');text('COLA',180,4,'#b53330');}
+ else if(['water','tea','juice'].includes(kind)) {const color={water:'#d4eaf0',tea:'#c58737',juice:'#edb74e'}[kind];shape(133,43,54,30,8,kind==='water'?'#6aacc6':'#7b9550');shape(126,69,68,58,14,color);shape(99,112,122,205,33,color);shape(111,120,12,175,6,kind==='water'?'#edf8fb':'#f1cf84');shape(98,172,124,86,8,kind==='water'?'#5998b1':kind==='tea'?'#56774b':'#faf0d1');text(kind.toUpperCase(),194,kind==='tea'?5:3,kind==='juice'?'#cf8a2e':'#ffffff');if(kind==='juice'){oval(160,233,15,13,'#e8a23b');shape(158,217,13,5,2,'#7d9e50');}}
+ else if(kind==='biscuit'){shape(68,74,184,230,12,'#d6b476');shape(68,74,184,20,4,'#b59255');shape(68,285,184,20,4,'#b59255');shape(78,112,164,62,5,'#fbefda');text('BISCUIT',132,3,'#876d42');oval(147,228,43,43,'#b98a48');oval(147,225,39,39,'#e6c186');oval(184,247,39,39,'#d8b275');for(const [x,y]of [[133,211],[155,210],[141,233],[165,235],[184,232],[174,255],[198,256]])oval(x,y,3,3,'#956b37');}
+ else{shape(83,84,154,220,15,'#94ac83');shape(83,84,154,18,4,'#718e62');shape(103,145,114,91,9,'#f3f5df');shape(147,165,26,48,6,'#91ad7c');shape(135,176,50,25,6,'#91ad7c');}
+ fs.writeFileSync(path.join(out,kind+'.png'),png());
+}
+console.log('PASS: generated 6 product illustrations');
