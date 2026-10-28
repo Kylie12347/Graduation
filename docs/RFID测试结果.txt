@@ -1,0 +1,45 @@
+PASS missedRfidDoesNotGuessBetweenIdenticalWeights
+PASS inconsistentRfidIsNotAllowedToOverrideWeight
+PASS snapshotOverridesCachedDeltaAndDeduplicatesTags
+PASS sameWeightNeedsRfidToDisambiguate
+PASS returnTwoItemsHasPositiveSign
+PASS zeroWeightAndHugeErrorStayPending
+PASS visualDifferenceRequiresConfirmationEvenWithMatchingRfid
+PASS uniqueWeightAndNoVisualDifferenceCanSurviveRfidMiss
+10:59:57.076 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [cn.graduation.cabinet.ShoppingIntegrationTest]: ShoppingIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+10:59:57.315 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration cn.graduation.cabinet.CabinetApplication for test class cn.graduation.cabinet.ShoppingIntegrationTest
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.7)
+
+2026-10-28T10:59:57.959+08:00  INFO 19532 --- [           main] c.g.cabinet.ShoppingIntegrationTest      : Starting ShoppingIntegrationTest using Java 17.0.20.1 with PID 19532 (C:\Users\longyuan\Documents\Codex\2026-10-27\411-rfid-rfid-rfid\work\compiled started by CodexSandboxOffline in C:\Users\longyuan\Documents\Codex\2026-10-27\411-rfid-rfid-rfid)
+2026-10-28T10:59:57.960+08:00  INFO 19532 --- [           main] c.g.cabinet.ShoppingIntegrationTest      : No active profile set, falling back to 1 default profile: "default"
+2026-10-28T10:59:59.009+08:00  INFO 19532 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-10-28T11:00:07.284+08:00  INFO 19532 --- [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:cabinettest user=SA
+2026-10-28T11:00:07.286+08:00  INFO 19532 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-10-28T11:00:07.625+08:00  INFO 19532 --- [           main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-10-28T11:00:07.943+08:00  INFO 19532 --- [           main] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-10-28T11:00:07.943+08:00  INFO 19532 --- [           main] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-10-28T11:00:07.944+08:00  INFO 19532 --- [           main] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 1 ms
+2026-10-28T11:00:07.999+08:00  INFO 19532 --- [           main] c.g.cabinet.ShoppingIntegrationTest      : Started ShoppingIntegrationTest in 10.435 seconds (process running for 11.435)
+PASS cancellationRequiresPhysicalReturnAndRestoresInventory
+PASS completeFlowIncludesReturnFailedPaymentRetryAndIdempotency
+PASS rejectsOverReturnNegativeQuantitiesAndClosedDoorOperations
+PASS pendingRequiresManualResolutionAndKeepsOriginalEvidence
+PASS migratesExistingActiveSessionWithoutLosingHeldItems
+PASS missedReadAndWrongMappingNeverChangePhysicalTagBinding
+PASS uniqueTagsRoundTripRestockAndSnapshotEvidence
+PASS consumerCannotSimulateOrReadAnotherUsersSession
+PASS lowStockAndRestockHaveTraceableQuantities
+PASS concurrentOpenOnlyAllowsOneConsumer
+RESULT passed=18 failed=0
+2026-10-28T11:00:11.836+08:00  INFO 19532 --- [ionShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2026-10-28T11:00:11.838+08:00  INFO 19532 --- [ionShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended

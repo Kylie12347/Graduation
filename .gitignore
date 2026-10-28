@@ -1,0 +1,11 @@
+backend/target/
+backend/data/
+.idea/
+*.iml
+miniprogram/project.private.config.json
+.DS_Store
+*.log
+.env
+node_modules/
+.build-cache/
+.ghcli/

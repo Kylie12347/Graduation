@@ -1,0 +1,1 @@
+.event{padding:22rpx 0;border-bottom:1rpx solid #e6eddf}.event-reason{font-size:25rpx;margin:18rpx 0}.overlay{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(20,42,28,.5);z-index:20;display:flex;align-items:center;justify-content:center}.resolve-panel{background:white;border-radius:26rpx;padding:35rpx;width:620rpx;max-height:85vh;overflow:auto}

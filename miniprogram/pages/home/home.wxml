@@ -1,0 +1,11 @@
+<!-- WXML是微信模板语言：{{}}绑定数据，wx:if控制显示，wx:for循环，bindtap绑定点击。 -->
+<view class="page">
+  <view class="eyebrow">GUIJIAN / SELF-SERVICE SHOPPING</view>
+  <view class="title">好物在柜，随取随享。</view>
+  <view class="subtitle">选一个柜体，开启你的自助购物。</view>
+  <view class="card" wx:if="{{active}}"><view class="badge-title"><view class="card-title">你有一笔进行中的购物</view><text class="tag">{{active.label}}</text></view><text class="muted">柜体 {{active.cabinet_id}}</text><button class="primary" bindtap="resume">继续购物 / 结算 →</button></view>
+  <view class="card"><view class="card-title">01 · 选择售货柜</view><view class="muted">扫码或输入编号；演示柜体为CAB001。</view><input value="{{cabinetId}}" bindinput="inputCabinet" placeholder="请输入柜体编号" maxlength="40"/><view class="actions"><button class="secondary" bindtap="scan">扫码选柜</button><button class="primary" bindtap="open" loading="{{loading}}" disabled="{{loading || active}}">申请开柜 →</button></view></view>
+  <view class="card"><view class="card-title">附近的虚拟柜体</view><view class="item-row" wx:for="{{cabinets}}" wx:key="id" bindtap="selectCabinet" data-id="{{item.id}}"><view class="icon">▦</view><view class="content"><view>{{item.name}}</view><view class="muted">{{item.id}} · {{item.location}}</view></view><text class="tag {{item.active_session ? 'warn' : ''}}">{{item.active_session ? '占用中' : '可用'}}</text></view><view wx:if="{{!cabinets.length}}" class="empty">启动后端后下拉刷新</view></view>
+  <view class="card"><view class="card-title">02 · 取放与结算</view><view class="steps">小程序申请开柜<br/>电脑端仿真面板模拟取出 / 放回<br/>关柜后核对购物清单<br/>处理异常并完成模拟支付</view></view>
+  <view class="footnote">毕业设计 · 无实体硬件 · 无真实扣款</view>
+</view>
