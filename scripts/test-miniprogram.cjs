@@ -52,5 +52,34 @@ function page(name,request,globalData={},extraWx={}){
  const homeClosed=page('home',async u=>u==='/cabinets'?[{id:'CAB001'}]:u==='/sessions'?[{id:'S1',cabinet_id:'CAB001',state:'REVIEW'}]:catalog,{pendingCabinetId:''});homeClosed.p.visible=true;await homeClosed.p.refresh();assert.equal(homeClosed.route(),'/pages/shopping/shopping?id=S1');pass('首页轮询发现管理端关柜后自动进入结算页');
  const onceData={boundCabinetId:'CAB001',pendingCabinetId:'CAB001',previewCabinetId:'CAB001'};
  const once=page('home',async()=>({id:'S3',state:'OPEN'}),onceData);await once.p.openCabinet('CAB001');assert.equal(onceData.boundCabinetId,'');assert.equal(once.p.data.bound,false);assert.equal(once.p.data.active.id,'S3');pass('一次扫码绑定在开柜成功后消耗，不保留重复开柜按钮');
+
+ // 模拟慢轮询：先查询到旧UNPAID，再支付成功，最后才返回旧查询。
+ let releaseOld;
+ const raceData={};
+ const race=page('shopping',async(u,m)=>u.endsWith('/pay')?{state:'PAID'}:new Promise(r=>{releaseOld=r}),raceData);
+ race.p.onLoad({id:'RACE'});race.p.visible=true;race.p.data.session={state:'UNPAID',order_id:'O9'};
+ const oldPoll=race.p.refresh();
+ await race.p.pay({currentTarget:{dataset:{success:'true'}}});
+ releaseOld({...unpaid,id:'RACE'});await oldPoll;
+ assert.equal(race.p.data.session.state,'PAID');assert.equal(race.p.completed,true);assert.ok(raceData.completedSessionIds.includes('RACE'));
+ pass('支付成功后迟到的UNPAID轮询不能覆盖终态');
+ let lateCatalog;
+ const staleData={};
+ const stale=page('home',async u=>u==='/cabinets'?[{id:'CAB001'}]:u==='/sessions'?[{id:'OLD',cabinet_id:'CAB001',state:'UNPAID'}]:new Promise(r=>{lateCatalog=r}),staleData);
+ stale.p.visible=true;const stalePoll=stale.p.refresh();
+ while(!lateCatalog) await Promise.resolve();
+ staleData.completedSessionIds=['OLD'];lateCatalog(catalog);await stalePoll;
+ assert.equal(stale.route(),'');assert.equal(stale.p.data.active,null);
+ pass('首页在途请求不能重新打开已支付旧会话');
+ const next=page('home',async u=>u==='/cabinets'?[{id:'CAB001'}]:u==='/sessions'?[{id:'OLD',state:'UNPAID'},{id:'NEW',cabinet_id:'CAB001',state:'REVIEW'}]:catalog,{completedSessionIds:['OLD']});
+ next.p.visible=true;await next.p.refresh();assert.equal(next.p.data.active.id,'NEW');assert.equal(next.route(),'/pages/shopping/shopping?id=NEW');
+ pass('排除已支付旧会话后仍能处理下一笔待结算订单');
+ let relaunched=false;
+ const fallback=page('shopping',async()=>({state:'PAID'}),{}, {switchTab:o=>o.fail(),reLaunch:o=>{relaunched=true;o.fail()}});
+ fallback.p.onLoad({id:'F1'});fallback.p.data.session={state:'UNPAID',order_id:'O9'};
+ await fallback.p.pay({currentTarget:{dataset:{success:'true'}}});assert.equal(relaunched,true);assert.equal(fallback.p.data.session.state,'PAID');assert.equal(fallback.p.completed,true);
+ pass('导航失败时仍保持已支付状态并尝试清空页面栈');
+ fallback.p.onLoad({id:'F2'});assert.equal(fallback.p.completed,false);assert.equal(fallback.p.exiting,false);assert.equal(fallback.p.data.session,null);
+ pass('下一次进入购物页重新初始化会话和退出标记');
  console.log('RESULT passed='+checks+' failed=0');
 })().catch(e=>{console.error(e);process.exitCode=1});

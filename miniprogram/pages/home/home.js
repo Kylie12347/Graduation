@@ -26,6 +26,8 @@ Page({
   onShow() {
     this.visible = true;
     this.navigating = false;
+    // 首页是常驻Tab，先清除上次视图，再以服务端重新查询的会话为准。
+    this.setData({ active: null });
     const app = getApp().globalData;
     if (app.checkoutNotice) {
       wx.showToast({ title: app.checkoutNotice, icon: 'success', duration: 2000 });
@@ -72,8 +74,8 @@ Page({
         request('/sessions')
       ]);
 
-      const active = sessions.find(
-        s => !['PAID', 'CANCELLED'].includes(s.state)
+      let active = sessions.find(
+        s => ['OPEN', 'REVIEW', 'UNPAID'].includes(s.state) && !(app.completedSessionIds || []).includes(s.id)
       );
 
       const id =
@@ -90,6 +92,9 @@ Page({
           '/cabinets/' + encodeURIComponent(id) + '/catalog'
         );
       }
+
+      // catalog请求期间可能刚完成支付，再检查一次终态记录，阻止旧请求触发跳转。
+      if (active && (app.completedSessionIds || []).includes(active.id)) active = null;
 
       // 只有后端确认柜体存在后，才接受二维码中的柜号。
       if (incoming && catalog) {

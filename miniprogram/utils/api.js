@@ -9,7 +9,7 @@ function raw(path, method, data, token) {
     wx.request({
       url: getApp().globalData.baseUrl + path, method, data,
       timeout: 15000,
-      header: { 'content-type': 'application/json', Authorization: 'Bearer ' + (token || '') },
+      header: { 'content-type': 'application/json', 'Cache-Control': 'no-cache', Authorization: 'Bearer ' + (token || '') },
       success(res) {
         if (res.statusCode >= 200 && res.statusCode < 300) resolve(res.data);
         else {
