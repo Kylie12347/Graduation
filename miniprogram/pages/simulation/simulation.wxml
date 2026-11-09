@@ -1,0 +1,44 @@
+<view class="page">
+  <view class="eyebrow">CABINET SIMULATION</view>
+  <view class="title">柜体感知仿真</view>
+  <view wx:if="{{error}}" class="card error">{{error}}<button bindtap="load">刷新</button></view>
+  <view wx:if="{{!active && !busy}}" class="card"><view class="muted">请先在首页扫描柜体二维码。</view><button bindtap="home">返回首页</button></view>
+  <block wx:if="{{active}}">
+    <view class="card"><view class="card-title">{{active.cabinetName || '当前柜体'}} · {{active.cabinet_id}}</view><view class="muted">本次会话的读数只用于这台柜。</view><button wx:if="{{active.state !== 'OPEN'}}" bindtap="shopping">查看审核或付款</button></view>
+    <block wx:if="{{active.state === 'OPEN'}}">
+      <view class="card">
+        <view class="card-title">1. 重量读数</view>
+        <view class="muted">输入关柜后的重量。模拟误差会加在关柜读数上。</view>
+        <view class="field"><text>开柜读数（克）</text><input type="number" value="{{before}}" bindinput="input" data-field="before" disabled="{{busy}}" /></view>
+        <view class="field"><text>关柜读数（克）</text><input type="number" value="{{after}}" bindinput="input" data-field="after" disabled="{{busy}}" /></view>
+        <view class="field"><text>模拟误差（克）</text><input type="digit" value="{{errorGrams}}" bindinput="input" data-field="errorGrams" disabled="{{busy}}" /></view>
+      </view>
+      <view class="card">
+        <view class="card-title">2. RFID 读卡</view>
+        <view class="muted">每个标签单独设置开柜和关柜是否读到。取出商品时，将对应标签的关柜读数设为未读到。</view>
+        <input class="search" placeholder="搜索商品名或 EPC" value="{{filter}}" bindinput="filter" />
+        <scroll-view scroll-y class="tag-list">
+          <view class="rfid" wx:for="{{shown}}" wx:key="tag">
+            <text>{{item.name}} · {{item.tag}}</text>
+            <view class="read-options"><button size="mini" disabled="{{busy}}" class="{{item.before ? 'on' : ''}}" data-tag="{{item.tag}}" data-field="before" bindtap="toggleTag">开柜：{{item.before ? '读到' : '未读到'}}</button>
+            <button size="mini" disabled="{{busy}}" class="{{item.after ? 'on' : ''}}" data-tag="{{item.tag}}" data-field="after" bindtap="toggleTag">关柜：{{item.after ? '读到' : '未读到'}}</button></view>
+          </view>
+        </scroll-view>
+        <button wx:if="{{matching > 20}}" size="mini" bindtap="showMore">{{showAll ? '只显示前 20 个' : '显示全部匹配标签'}}</button>
+      </view>
+      <view class="card">
+        <view class="card-title">3. 视觉照片</view>
+        <view class="muted">按开柜、取放、关柜的顺序添加 2–6 张照片。时间按导入顺序记录；顺序有误时可上移。大模型只识别净取出的商品及数量。</view>
+        <view class="frame" wx:for="{{photos}}" wx:key="timestamp">
+          <image src="{{item.path}}" mode="aspectFill" />
+          <view><view>第 {{index + 1}} 帧</view><view class="muted">{{item.label}}</view></view>
+          <button wx:if="{{index > 0}}" size="mini" bindtap="movePhoto" data-index="{{index}}" disabled="{{busy}}">上移</button>
+          <button size="mini" bindtap="removePhoto" data-timestamp="{{item.timestamp}}" disabled="{{busy}}">删除</button>
+        </view>
+        <button bindtap="addPhotos" disabled="{{busy || photos.length >= 6}}">拍摄或添加照片</button>
+      </view>
+      <button class="primary" bindtap="submit" loading="{{busy}}" disabled="{{busy || !!error}}">提交观测并关柜</button>
+      <button bindtap="abandon" disabled="{{busy}}">放弃本次草稿</button>
+    </block>
+  </block>
+</view>

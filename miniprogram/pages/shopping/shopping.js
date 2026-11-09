@@ -1,7 +1,7 @@
 const { request, money, states, message } = require('../../utils/api');
 const { imageFor } = require('../../utils/storefront');
 Page({
-  data: { session: null, pending: [], reviewed: [], busy: false, error: '' },
+  data: { session: null, busy: false, error: '' },
   /** 每次进入页面都初始化实例标记，避免开发工具重载或再次购物沿用上次退出状态。 */
   onLoad(options = {}) {
     this.id = options.id;
@@ -10,6 +10,7 @@ Page({
     this.completed = false;
     this.fetching = false;
     this.revision = 0;
+    this.offeredPayment = false;
     this.setData({ session: null, pending: [], reviewed: [], busy: false, error: '' });
   },
   onShow() { this.visible = true; this.refresh(); clearInterval(this.timer); this.timer = setInterval(() => this.refresh(true), 2500); },
@@ -29,15 +30,22 @@ Page({
         return;
       }
       // 后端保留完整证据用于管理端审计；消费者视图只映射商品与待确认项目。
-      const decorate = i => ({ ...i, image: imageFor(i.productId), price: money(i.unitPriceCents), subtotal: money(i.subtotalCents) });
-      const session = { doorOpen: raw.doorOpen, cabinetLocked: raw.cabinetLocked, id: raw.id, cabinet_id: raw.cabinet_id, state: raw.state, label: states[raw.state], order_id: raw.order_id,
+      const decorate = i => ({ ...i, image: i.imageUrl || imageFor(i.productId), price: money(i.unitPriceCents), subtotal: money(i.subtotalCents) });
+      const session = { cabinetName: raw.cabinetName, frontendSimulation: raw.frontendSimulation, doorOpen: raw.doorOpen, cabinetLocked: raw.cabinetLocked, id: raw.id, cabinet_id: raw.cabinet_id, state: raw.state, label: states[raw.state], order_id: raw.order_id,
         pendingCount: raw.pendingCount, basketError: !!raw.basketError, items: raw.items.map(decorate),
         total: money(raw.items.reduce((sum, i) => sum + i.subtotalCents, 0)), order: null };
-      if (raw.order) session.order = { amount: money(raw.order.total_cents), items: raw.order.items.map(decorate) };
-      const pending = raw.events.filter(e => e.status === 'PENDING').map((e, index) => ({ id: e.id, title: '待确认商品 ' + (index + 1),
-        hint: [...new Set(e.result.candidates.map(c => c.name))].join(' / ') || '请选择实际取放的商品' }));
-      const reviewed = raw.events.filter(e => e.status === 'RESOLVED').map((e, index) => ({ id: e.id, title: '已核对项目 ' + (index + 1) }));
-      if (this.visible) this.setData({ session, pending, reviewed, error: '' });
+      if (raw.order) session.order = { amount: money(raw.order.total_cents), items: raw.order.items.map(decorate),
+        route: ({ DIRECT:'RFID 与视觉一致', WEIGHT_PRIORITY:'特殊商品重量优先', ADMIN_REVIEW:'运营人员已核对' })[raw.order.checkoutRoute] || '' };
+      if (this.visible) {
+        this.setData({ session, error: '' });
+        if (!this.readOnly && raw.state === 'UNPAID' && !this.offeredPayment && session.order) {
+          this.offeredPayment = true;
+          wx.showModal({ title: '待支付 · ' + raw.cabinet_id,
+            content: '应付 ¥' + session.order.amount + '（模拟支付）', confirmText: '模拟付款', cancelText: '稍后',
+            success: r => { if (r.confirm && this.visible) this.pay({ currentTarget: { dataset: { success: 'true' } } }); }
+          });
+        }
+      }
     } catch (e) { if (this.visible) this.setData({ error: e.message }); if (!quiet) message(e); }
     finally { this.fetching = false; }
   },
@@ -51,11 +59,7 @@ Page({
       if (!this.completed && !this.exiting) await this.refresh();
     }
   },
-  close() { this.run(() => request('/sessions/' + this.id + '/close', 'POST')); },
-  resolve(e) {
-    wx.navigateTo({ url: '/pages/resolve/resolve?sessionId=' + encodeURIComponent(this.id) + '&eventId=' + encodeURIComponent(e.currentTarget.dataset.id) });
-  },
-  confirmList() { this.run(() => request('/orders/' + this.data.session.order_id + '/confirm', 'POST')); },
+  simulation() { wx.switchTab({ url: '/pages/simulation/simulation' }); },
   pay(e) {
     const success = e.currentTarget.dataset.success === 'true';
     const requestKey = 'wx-' + Date.now() + '-' + Math.random().toString(36).slice(2);
@@ -95,11 +99,6 @@ Page({
         } });
       }
     });
-  },
-  cancel() {
-    wx.showModal({ title: '取消订单', content: '取消前请先归还全部商品。确认申请取消？', success: res => {
-      if (res.confirm) this.run(() => request('/orders/' + this.data.session.order_id + '/cancel', 'POST'));
-    } });
   },
   refreshTap() { this.refresh(); },
   home() { wx.switchTab({ url: '/pages/home/home' }); }

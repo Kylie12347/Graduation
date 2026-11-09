@@ -6,7 +6,7 @@
   <view class="card error" wx:if="{{error}}">{{error}}<button bindtap="refreshTap">重新加载</button></view>
   <view class="card" wx:if="{{active}}"><view class="badge-title"><view class="card-title">你有一笔购物待完成</view><text class="tag">{{active.label}}</text></view><view class="muted">{{active.cabinet_id}}</view><button class="primary" bindtap="resume">继续购物 / 结算</button></view>
   <view class="store-banner card">
-    <view class="badge-title"><view><view class="card-title">{{cabinet ? cabinet.name : '发现身边的售货柜'}}</view><view class="muted">{{cabinet ? cabinet.location : '扫码查看柜内商品'}}</view></view><text class="tag" wx:if="{{bound}}">已扫码绑定</text><text class="tag" wx:elif="{{cabinet}}">商品预览</text></view>
+    <view class="badge-title"><view><view class="card-title">{{cabinet ? cabinet.name : '发现身边的售货柜'}}</view><view class="muted">{{cabinet ? cabinet.id + ' · ' + cabinet.location : '扫码查看柜内商品'}}</view></view><text class="tag" wx:if="{{bound}}">已扫码绑定</text><text class="tag" wx:elif="{{cabinet}}">商品预览</text></view>
     <button wx:if="{{!active && bound}}" class="primary" bindtap="openBound" loading="{{opening}}" disabled="{{opening || !cabinet.available}}">{{cabinet.available ? '开启这台售货柜' : '柜体使用中，请稍候'}}</button>
     <button wx:elif="{{!active}}" class="primary" bindtap="scan" loading="{{opening}}" disabled="{{opening}}">扫码开柜</button>
     <view class="muted scan-tip" wx:if="{{!active}}">每台柜体有独立二维码，扫码对应唯一柜体。</view>
@@ -15,5 +15,5 @@
   <view class="product-grid"><view class="goods-card" wx:for="{{products}}" wx:key="id"><view class="picture"><image src="{{item.image}}" mode="aspectFit" data-index="{{index}}" binderror="imageError"/></view><view class="goods-name">{{item.name}}</view><view class="goods-bottom"><text class="goods-price">¥{{item.price}}</text><text class="stock {{item.stock === 0 ? 'sold-out' : ''}}">{{item.stock > 0 ? '剩余 ' + item.stock + ' 件' : '暂时售罄'}}</text></view></view></view>
   <view wx:if="{{!products.length}}" class="card empty">{{loading ? '正在加载商品…' : '这台柜体暂未上架商品'}}</view>
   <view class="card nearby-entry" bindtap="nearby"><view><view class="card-title">附近售货柜</view><view class="muted">查看位置、使用状态与柜内商品</view></view><text class="entry-arrow">→</text></view>
-  <view class="footnote">取出即识别 · 关柜后核对清单 · 模拟支付</view>
+  <view class="footnote">前端模拟取放感知 · 关柜后自动出单 · 模拟支付</view>
 </view>

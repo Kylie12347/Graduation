@@ -13,9 +13,9 @@ public class DataStore {
     public JdbcTemplate jdbc() { return db; }
     public DataStore(JdbcTemplate db) { this.db = db; }
     public List<Product> products() {
-        return db.query("SELECT * FROM products ORDER BY id", (rs,n) -> new Product(rs.getString("id"),
+        return db.query("SELECT p.*,pp.image_url,COALESCE(pp.weight_priority,FALSE) AS weight_priority FROM products p LEFT JOIN product_profiles pp ON pp.product_id=p.id ORDER BY p.id", (rs,n) -> new Product(rs.getString("id"),
             rs.getString("name"),rs.getInt("price_cents"),rs.getInt("weight_grams"),
-            rs.getInt("threshold_qty"),rs.getBoolean("enabled")));
+            rs.getInt("threshold_qty"),rs.getBoolean("enabled"),rs.getString("image_url"),rs.getBoolean("weight_priority")));
     }
     public Product product(String id) {
         return products().stream().filter(p -> p.id().equals(id)).findFirst()

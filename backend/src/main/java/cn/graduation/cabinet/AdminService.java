@@ -22,7 +22,8 @@ public class AdminService {
         List<Map<String,Object>> rows=s.jdbc().queryForList("SELECT st.*,p.name,p.price_cents,p.weight_grams,p.threshold_qty,p.enabled,c.name AS cabinet_name,c.active_session FROM stocks st JOIN products p ON p.id=st.product_id JOIN cabinets c ON c.id=st.cabinet_id ORDER BY st.cabinet_id,st.product_id");
         for(var r:rows) {
             String active=(String)r.get("active_session");
-            int held=active==null?0:SimulatorService.held(s,active).getOrDefault((String)r.get("product_id"),0);
+            int held=active==null?0:s.jdbc().queryForObject("SELECT COUNT(*) FROM rfid_items WHERE cabinet_id=? AND product_id=? AND held_session=? AND location='OUTSIDE'",Integer.class,r.get("cabinet_id"),r.get("product_id"),active);
+            if(active!=null) held=Math.max(held,SimulatorService.held(s,active).getOrDefault((String)r.get("product_id"),0));
             r.put("held",held);
             int onHand=((Number)r.get("on_hand")).intValue();
             r.put("lowStock",Boolean.TRUE.equals(r.get("enabled")) && onHand<=((Number)r.get("threshold_qty")).intValue());
@@ -36,11 +37,15 @@ public class AdminService {
         if(!p.id().matches("[A-Za-z0-9_-]{1,40}")) throw new BusinessException("商品编号只允许字母、数字、下划线和短横线");
         if(s.jdbc().queryForObject("SELECT COUNT(*) FROM cabinets WHERE active_session IS NOT NULL",Integer.class)>0)
             throw new BusinessException("有购物会话未结束，请完成支付/取消后再修改商品资料");
+        String image=p.imageUrl()==null?"":p.imageUrl().trim();
+        if(!image.isEmpty()&&!image.matches("https://[^\\s]+")) throw new BusinessException("商品图片请填写 HTTPS 链接");
         int updated=s.jdbc().update("UPDATE products SET name=?,price_cents=?,weight_grams=?,threshold_qty=?,enabled=? WHERE id=?",p.name(),p.priceCents(),p.weightGrams(),p.thresholdQty(),p.enabled(),p.id());
         if(updated==0) {
             s.jdbc().update("INSERT INTO products VALUES(?,?,?,?,?,?)",p.id(),p.name(),p.priceCents(),p.weightGrams(),p.thresholdQty(),p.enabled());
             for(var c:cabinets()) s.jdbc().update("INSERT INTO stocks(cabinet_id,product_id,on_hand,supplied) VALUES(?,?,0,0)",c.get("id"),p.id());
         }
+        if(s.jdbc().update("UPDATE product_profiles SET image_url=?,weight_priority=? WHERE product_id=?",image,p.weightPriority(),p.id())==0)
+            s.jdbc().update("INSERT INTO product_profiles(product_id,image_url,weight_priority) VALUES(?,?,?)",p.id(),image,p.weightPriority());
     }
     @Transactional
     public void createCabinet(CabinetInput c) {
@@ -58,13 +63,25 @@ public class AdminService {
         rfid.add(r.cabinetId(),r.productId(),r.quantity(),null);
         s.log(r.cabinetId(),r.productId(),"RESTOCK",r.quantity(),null);
     }
-    public Map<String,Object> dashboard(String dateText) {
+    public Map<String,Object> dashboard(String dateText,String cabinetId) {
         LocalDate date;
         try{date=dateText==null?LocalDate.now(zone):LocalDate.parse(dateText);}
         catch(Exception e){throw new BusinessException("日期格式应为yyyy-MM-dd");}
         long start=date.atStartOfDay(zone).toInstant().toEpochMilli();
         long end=date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
-        var paid=s.jdbc().queryForList("SELECT * FROM orders WHERE state='PAID' AND paid_at>=? AND paid_at<? ORDER BY paid_at DESC",start,end);
+        var allPaid=s.jdbc().queryForList("SELECT * FROM orders WHERE state='PAID' AND paid_at>=? AND paid_at<? ORDER BY paid_at DESC",start,end);
+        var paid=allPaid.stream().filter(o->cabinetId==null||cabinetId.isBlank()||cabinetId.equals(o.get("cabinet_id"))).toList();
+        var comparison=new ArrayList<Map<String,Object>>();
+        for(var c:cabinets()){
+            var orders=allPaid.stream().filter(o->c.get("id").equals(o.get("cabinet_id"))).toList();
+            long sales=orders.stream().mapToLong(o->((Number)o.get("total_cents")).longValue()).sum();
+            int units=0;
+            for(var o:orders){
+                List<OrderItem> lines=json.read((String)o.get("items_json"),new TypeReference<>(){});
+                units+=lines.stream().mapToInt(OrderItem::quantity).sum();
+            }
+            comparison.add(Map.of("id",c.get("id"),"name",c.get("name"),"revenueCents",sales,"orders",orders.size(),"units",units));
+        }
         long revenue=0,quantity=0;
         Map<String,Map<String,Object>> perProduct=new LinkedHashMap<>();
         Map<String,Long> perCabinet=new LinkedHashMap<>();
@@ -83,13 +100,14 @@ public class AdminService {
                 row.put("amountCents",((Number)row.get("amountCents")).longValue()+item.subtotalCents());
             }
         }
-        var inventory=stocks();
+        var inventory=stocks().stream().filter(r->cabinetId==null||cabinetId.isBlank()||cabinetId.equals(r.get("cabinet_id"))).toList();
         Map<String,Object> result=new LinkedHashMap<>();
         result.put("date",date.toString());result.put("revenueCents",revenue);result.put("paidOrders",paid.size());
         result.put("soldQuantity",quantity);result.put("productSales",perProduct.values());result.put("cabinetRevenue",perCabinet);
         result.put("hourlyRevenue",hours);result.put("stocks",inventory);
         result.put("lowStock",inventory.stream().filter(r->Boolean.TRUE.equals(r.get("lowStock"))).toList());
-        result.put("pendingEvents",s.jdbc().queryForObject("SELECT COUNT(*) FROM perception_events e JOIN shopping_sessions ss ON ss.id=e.session_id WHERE e.status='PENDING' AND ss.state NOT IN ('PAID','CANCELLED')",Integer.class));
+        result.put("comparison",comparison);
+        result.put("pendingEvents",s.jdbc().queryForObject("SELECT COUNT(*) FROM shopping_sessions WHERE state='REVIEW' AND (? IS NULL OR cabinet_id=?)",Integer.class,cabinetId==null||cabinetId.isBlank()?null:cabinetId,cabinetId));
         return result;
     }
 }

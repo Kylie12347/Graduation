@@ -3,8 +3,8 @@
     "pages/home/home",
     "pages/shopping/shopping",
     "pages/orders/orders",
-    "pages/resolve/resolve",
-    "pages/nearby/nearby"
+    "pages/nearby/nearby",
+    "pages/simulation/simulation"
   ],
   "window": {
     "navigationBarTitleText": "柜见 · 自助购物",
@@ -20,6 +20,10 @@
       {
         "pagePath": "pages/home/home",
         "text": "首页"
+      },
+      {
+        "pagePath": "pages/simulation/simulation",
+        "text": "仿真"
       },
       {
         "pagePath": "pages/orders/orders",

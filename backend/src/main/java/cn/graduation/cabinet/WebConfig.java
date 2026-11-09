@@ -23,6 +23,6 @@ public class WebConfig implements WebMvcConfigurer {
                 req.setAttribute("principal",p);
                 return true;
             }
-        }).addPathPatterns("/api/**").excludePathPatterns("/api/auth/login");
+        }).addPathPatterns("/api/**").excludePathPatterns("/api/auth/login","/api/cabinets/*/qr");
     }
 }

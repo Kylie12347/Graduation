@@ -51,6 +51,15 @@ public class RfidService {
         }
         return moved;
     }
+    /** 审核确认库存时优先登记实际观测缺失且属于所选 SKU 的 EPC。 */
+    public void reserve(String cabinet,String session,String sku,int quantity,List<String> preferred) {
+        var available=new ArrayList<>(s.jdbc().queryForList("SELECT epc FROM rfid_items WHERE cabinet_id=? AND product_id=? AND location='IN_CABINET' ORDER BY epc FOR UPDATE",String.class,cabinet,sku));
+        if(available.size()<quantity) throw new BusinessException("RFID 数量与库存不一致");
+        var preferredSet=new HashSet<>(preferred);
+        available.sort(Comparator.comparing(t->!preferredSet.contains(t)));
+        for(String epc:available.subList(0,quantity))
+            s.jdbc().update("UPDATE rfid_items SET location='OUTSIDE',held_session=? WHERE epc=?",session,epc);
+    }
     /** 纯集合差算法，不接收操作方向、商品答案或实际移动的标签列表。重复读数按集合去重。 */
     public static Map<String,Integer> delta(RfidObservation observation) {
         Set<String> before=new LinkedHashSet<>(observation.beforeTags());

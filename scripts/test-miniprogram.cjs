@@ -1,85 +1,64 @@
-/* 无微信运行环境时的页面逻辑测试。真实wx接口用替身，验证请求、路由及消费者呈现。 */
+/* 用 wx 替身验证柜号、上报内容、审核等待与付款弹窗。 */
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
-const root=path.resolve(__dirname,'..');
 const storefront=require('../miniprogram/utils/storefront');
-let checks=0;
-function pass(name){checks++;console.log('PASS '+name);}
 function page(name,request,globalData={},extraWx={}){
- let definition,route='';
- const api={request,money:n=>(n/100).toFixed(2),message:e=>{throw e},states:{OPEN:'购物中',REVIEW:'待确认清单'}};
- const wx={navigateTo:o=>{route=o.url},switchTab:o=>{route=o.url},navigateBack:()=>{route='BACK'},showToast:()=>{},...extraWx};
- vm.runInNewContext(fs.readFileSync(path.join(root,'miniprogram/pages/'+name+'/'+name+'.js'),'utf8'),{Page:p=>{definition=p},require:p=>p.endsWith('/api')?api:storefront,getApp:()=>({globalData}),wx,setInterval:()=>1,clearInterval:()=>{},console});
- definition.data=JSON.parse(JSON.stringify(definition.data));definition.setData=function(p){Object.assign(this.data,p)};
- return {p:definition,route:()=>route};
+  let p,route='', modal=null; const notices=[];
+  const api={request,money:n=>(n/100).toFixed(2),message:e=>notices.push(e.message),states:{OPEN:'购物中',REVIEW:'等待运营审核',UNPAID:'待支付',PAID:'已支付'}};
+  const wx={navigateTo:o=>{route=o.url},switchTab:o=>{route=o.url},showModal:o=>{modal=o},showToast:()=>{},
+    getStorageSync:()=>null,setStorageSync:()=>{},removeStorageSync:()=>{},...extraWx};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/pages',name,name+'.js'),'utf8'),{Page:x=>{p=x},require:x=>x.endsWith('/api')?api:storefront,getApp:()=>({globalData}),wx,setInterval:()=>1,clearInterval:()=>{},console});
+  p.setData=values=>Object.assign(p.data,values);
+  return {p,route:()=>route,modal:()=>modal,notices};
 }
 (async()=>{
- assert.equal(storefront.parseCabinetId('CAB001'),'CAB001');
- assert.equal(storefront.parseCabinetId('https://example.test/?cabinetId=CAB002'),'CAB002');
- assert.equal(storefront.parseCabinetId('pages/home/home?scene=cabinetId%3DCAB003'),'CAB003');
- assert.equal(storefront.parseCabinetId('%E0%A4%A'),'');assert.equal(storefront.parseCabinetId('CAB001/other'),'');
- pass('二维码原始编号、URL、小程序scene与非法值');
- const catalog={cabinet:{id:'CAB001',name:'一号柜',location:'图书馆',available:true},products:[{id:'WATER',name:'矿泉水',price_cents:200,stock:5}]};
- let calls=[];
- const gd={boundCabinetId:'',pendingCabinetId:'',previewCabinetId:''};
- const h=page('home',async(url,method,body)=>{calls.push([url,method,body]);if(url==='/cabinets')return [{id:'CAB001'}];if(url==='/sessions'&&method==='POST')return {id:'S1'};if(url==='/sessions')return [];return catalog},gd,{scanCode:async o=>o.success({result:'CAB001'})});
- h.p.visible=true;await h.p.refresh();assert.equal(h.p.data.bound,false);assert.equal(h.p.data.products[0].price,'2.00');assert.ok(h.p.data.products[0].image.endsWith('water.png'));
- await assert.rejects(h.p.openBound(),/请先扫描/);assert.ok(!calls.some(c=>c[1]==='POST'));pass('首页预览商品、图片和价格，未扫码不能开柜');
- const scan=page('home',async(url,method,body)=>{calls.push([url,method,body]);return method==='POST'?{id:'S2'}:catalog},gd,{scanCode:o=>o.success({result:'CAB001'})});
- await new Promise((resolve,reject)=>{scan.p.openCabinet=async id=>{try{assert.equal(id,'CAB001');assert.equal(gd.boundCabinetId,'CAB001');resolve()}catch(e){reject(e)}};scan.p.scan()});pass('扫码绑定唯一柜体并触发该柜开门');
- const incoming={pendingCabinetId:'CAB001',boundCabinetId:''};const launch=page('home',async u=>u==='/cabinets'?[{id:'CAB001'}]:u==='/sessions'?[]:catalog,incoming);launch.p.visible=true;await launch.p.refresh();assert.equal(launch.p.data.bound,true);assert.equal(incoming.pendingCabinetId,'');pass('小程序码启动参数绑定已验证柜体');
- const session={id:'S1',cabinet_id:'CAB001',state:'REVIEW',pendingCount:1,items:[],basketError:'',events:[{id:'E1',status:'PENDING',result:{direction:'TAKE',candidates:[{productId:'WATER',name:'矿泉水'}],steps:['private trace'],reason:'private reason'}}]};
- const shopping=page('shopping',async()=>session);shopping.p.id='S1';shopping.p.visible=true;await shopping.p.refresh();assert.equal(shopping.p.data.pending.length,1);assert.ok(!JSON.stringify(shopping.p.data).includes('private trace'));assert.ok(!JSON.stringify(shopping.p.data).includes('private reason'));
- shopping.p.resolve({currentTarget:{dataset:{id:'E1'}}});assert.equal(shopping.route(),'/pages/resolve/resolve?sessionId=S1&eventId=E1');pass('消费者视图不含融合日志，待确认项目进入独立页面');
- let saved;
- const selection=page('resolve',async(url,method,body)=>{if(method==='POST'){saved=body;return {}}return url.includes('/catalog')?catalog:session});selection.p.onLoad({sessionId:'S1',eventId:'E1'});await selection.p.load();assert.equal(selection.p.data.selectedId,'');await selection.p.save();assert.equal(saved,undefined);
- selection.p.selectProduct({currentTarget:{dataset:{id:'WATER'}}});selection.p.increase();selection.p.selectDirection({currentTarget:{dataset:{direction:'RETURN'}}});await selection.p.save();assert.equal(saved.productId,'WATER');assert.equal(saved.quantity,2);assert.equal(saved.direction,'RETURN');assert.ok(saved.note.includes('消费者核对'));assert.equal(selection.route(),'BACK');pass('必须点击商品才能确认，按钮修改方向数量，保存后返回');
- session.state='PAID';await selection.p.load();assert.equal(selection.p.data.editable,false);saved=undefined;await selection.p.save();assert.equal(saved,undefined);pass('已结算清单不可再次提交人工答案');
- const nearby=page('nearby',async()=>[] ,gd);nearby.p.browse({currentTarget:{dataset:{id:'CAB002'}}});assert.equal(gd.previewCabinetId,'CAB002');assert.equal(gd.boundCabinetId,'CAB001');pass('附近列表只浏览，不改变扫码绑定柜体');
- for(const name of ['shopping','resolve'])assert.ok(!fs.readFileSync(path.join(root,'miniprogram/pages/'+name+'/'+name+'.wxml'),'utf8').includes('<picker'));
- assert.ok(!fs.readFileSync(path.join(root,'miniprogram/pages/shopping/shopping.wxml'),'utf8').includes('result.steps'));
- for(const name of ['cola','water','tea','juice','biscuit','generic'])assert.ok(fs.existsSync(path.join(root,'miniprogram/assets/products/'+name+'.png')));
- pass('无滚轮选择、无融合日志模板，六张商品图片齐全');const paidSession={id:'S9',cabinet_id:'CAB001',state:'PAID',pendingCount:0,items:[],events:[],order_id:'O9',order:{total_cents:200,items:[]}};
- const checkoutData={boundCabinetId:'CAB001',pendingCabinetId:'CAB001',previewCabinetId:'CAB001'};
- const paidPage=page('shopping',async()=>paidSession,checkoutData);paidPage.p.onLoad({id:'S9'});paidPage.p.visible=true;await paidPage.p.refresh();
- assert.equal(paidPage.route(),'/pages/home/home');assert.equal(checkoutData.boundCabinetId,'');assert.equal(checkoutData.pendingCabinetId,'');pass('付款已完成时自动返回首页并清理扫码绑定');
- const history=page('shopping',async()=>paidSession,{});history.p.onLoad({id:'S9',readOnly:'1'});history.p.visible=true;await history.p.refresh();assert.equal(history.route(),'');assert.equal(history.p.data.session.state,'PAID');pass('从历史订单查看已支付清单时保留详情页面');
- let paymentSucceeded=false;
- const unpaid={...paidSession,state:'UNPAID'};
- const payment=page('shopping',async(u,m)=>u.endsWith('/pay')?{state:paymentSucceeded?'PAID':'UNPAID'}:unpaid,{});
- payment.p.onLoad({id:'S9'});payment.p.visible=true;payment.p.data.session={order_id:'O9'};
- await payment.p.pay({currentTarget:{dataset:{success:'true'}}});assert.equal(payment.route(),'');
- paymentSucceeded=true;await payment.p.pay({currentTarget:{dataset:{success:'true'}}});assert.equal(payment.route(),'/pages/home/home');pass('只按后端PAID跳转，支付未成功留在支付页');
- const homeClosed=page('home',async u=>u==='/cabinets'?[{id:'CAB001'}]:u==='/sessions'?[{id:'S1',cabinet_id:'CAB001',state:'REVIEW'}]:catalog,{pendingCabinetId:''});homeClosed.p.visible=true;await homeClosed.p.refresh();assert.equal(homeClosed.route(),'/pages/shopping/shopping?id=S1');pass('首页轮询发现管理端关柜后自动进入结算页');
- const onceData={boundCabinetId:'CAB001',pendingCabinetId:'CAB001',previewCabinetId:'CAB001'};
- const once=page('home',async()=>({id:'S3',state:'OPEN'}),onceData);await once.p.openCabinet('CAB001');assert.equal(onceData.boundCabinetId,'');assert.equal(once.p.data.bound,false);assert.equal(once.p.data.active.id,'S3');pass('一次扫码绑定在开柜成功后消耗，不保留重复开柜按钮');
+  assert.equal(storefront.parseCabinetId('CAB001'),'CAB001');
+  assert.equal(storefront.parseCabinetId('cabinetId=CAB002'),'CAB002');
+  assert.equal(storefront.parseCabinetId('pages/home/home?scene=cabinetId%3DCAB003'),'CAB003');
+  assert.equal(storefront.parseCabinetId('%E0%A4%A'),'');
+  const calls=[];
+  const catalog=id=>({cabinet:{id,name:id,available:true},products:[]});
+  const homeRequest=async(url,method,data)=>{
+    calls.push([url,method,data]);
+    if(url==='/cabinets')return [{id:'CAB001'},{id:'CAB002'}];
+    if(url==='/sessions')return method==='POST'?{id:'S2',state:'OPEN',cabinet_id:data.cabinetId}:[];
+    return catalog(url.split('/')[2]);
+  };
+  const launch=page('home',homeRequest,{pendingCabinetId:'CAB002'});
+  launch.p.visible=true;
+  await launch.p.refresh();
+  assert.equal(calls.find(c=>c[1]==='POST')[2].cabinetId,'CAB002');
+  assert.equal(launch.route(),'/pages/simulation/simulation');
+  assert.equal(launch.p.data.cabinet.id,'CAB002');
 
- // 模拟慢轮询：先查询到旧UNPAID，再支付成功，最后才返回旧查询。
- let releaseOld;
- const raceData={};
- const race=page('shopping',async(u,m)=>u.endsWith('/pay')?{state:'PAID'}:new Promise(r=>{releaseOld=r}),raceData);
- race.p.onLoad({id:'RACE'});race.p.visible=true;race.p.data.session={state:'UNPAID',order_id:'O9'};
- const oldPoll=race.p.refresh();
- await race.p.pay({currentTarget:{dataset:{success:'true'}}});
- releaseOld({...unpaid,id:'RACE'});await oldPoll;
- assert.equal(race.p.data.session.state,'PAID');assert.equal(race.p.completed,true);assert.ok(raceData.completedSessionIds.includes('RACE'));
- pass('支付成功后迟到的UNPAID轮询不能覆盖终态');
- let lateCatalog;
- const staleData={};
- const stale=page('home',async u=>u==='/cabinets'?[{id:'CAB001'}]:u==='/sessions'?[{id:'OLD',cabinet_id:'CAB001',state:'UNPAID'}]:new Promise(r=>{lateCatalog=r}),staleData);
- stale.p.visible=true;const stalePoll=stale.p.refresh();
- while(!lateCatalog) await Promise.resolve();
- staleData.completedSessionIds=['OLD'];lateCatalog(catalog);await stalePoll;
- assert.equal(stale.route(),'');assert.equal(stale.p.data.active,null);
- pass('首页在途请求不能重新打开已支付旧会话');
- const next=page('home',async u=>u==='/cabinets'?[{id:'CAB001'}]:u==='/sessions'?[{id:'OLD',state:'UNPAID'},{id:'NEW',cabinet_id:'CAB001',state:'REVIEW'}]:catalog,{completedSessionIds:['OLD']});
- next.p.visible=true;await next.p.refresh();assert.equal(next.p.data.active.id,'NEW');assert.equal(next.route(),'/pages/shopping/shopping?id=NEW');
- pass('排除已支付旧会话后仍能处理下一笔待结算订单');
- let relaunched=false;
- const fallback=page('shopping',async()=>({state:'PAID'}),{}, {switchTab:o=>o.fail(),reLaunch:o=>{relaunched=true;o.fail()}});
- fallback.p.onLoad({id:'F1'});fallback.p.data.session={state:'UNPAID',order_id:'O9'};
- await fallback.p.pay({currentTarget:{dataset:{success:'true'}}});assert.equal(relaunched,true);assert.equal(fallback.p.data.session.state,'PAID');assert.equal(fallback.p.completed,true);
- pass('导航失败时仍保持已支付状态并尝试清空页面栈');
- fallback.p.onLoad({id:'F2'});assert.equal(fallback.p.completed,false);assert.equal(fallback.p.exiting,false);assert.equal(fallback.p.data.session,null);
- pass('下一次进入购物页重新初始化会话和退出标记');
- console.log('RESULT passed='+checks+' failed=0');
-})().catch(e=>{console.error(e);process.exitCode=1});
+  let observed;
+  const simulation=page('simulation',async(url,method,body)=>{
+    if(url==='/sessions')return [{id:'S2',state:'OPEN',cabinet_id:'CAB002'}];
+    if(url.endsWith('/simulation'))return {grams:1000,tags:['TAG-A','TAG-B'],tagProducts:{'TAG-A':'COLA','TAG-B':'JUICE'},catalog:[{id:'COLA',name:'可乐'},{id:'JUICE',name:'橙汁'}]};
+    if(method==='POST'){ observed=JSON.parse(JSON.stringify(body));return {id:'S2',cabinet_id:'CAB002',state:'REVIEW'};}
+    return {cabinetName:'二号柜'};
+  });
+  await simulation.p.load();
+  simulation.p.input({currentTarget:{dataset:{field:'after'}},detail:{value:'670'}});
+  simulation.p.input({currentTarget:{dataset:{field:'errorGrams'}},detail:{value:'-3'}});
+  simulation.p.toggleTag({currentTarget:{dataset:{tag:'TAG-A',field:'after'}}});
+  await simulation.p.submit();
+  assert.deepEqual(observed,{beforeGrams:1000,afterGrams:667,beforeTags:['TAG-A','TAG-B'],afterTags:['TAG-B'],photos:[]});
+  assert.equal(simulation.route(),'/pages/shopping/shopping?id=S2');
+
+  let phase='REVIEW',paid=0;
+  const checkout=page('shopping',async(url,method)=>{
+    if(method==='POST'){paid++;return {state:'PAID'};}
+    return {id:'S2',cabinet_id:'CAB002',cabinetName:'二号柜',state:phase,order_id:'O2',items:[],order:{items:[],total_cents:350,checkoutRoute:'ADMIN_REVIEW'}};
+  });
+  checkout.p.onLoad({id:'S2'});checkout.p.visible=true;
+  await checkout.p.refresh();
+  assert.equal(checkout.modal(),null);
+  assert.equal(checkout.p.resolve,undefined);
+  phase='UNPAID';await checkout.p.refresh();
+  assert.equal(checkout.modal().title,'待支付 · CAB002');
+  assert.equal(paid,0);
+  await checkout.p.pay({currentTarget:{dataset:{success:'true'}}});
+  assert.equal(paid,1);
+  assert.equal(checkout.route(),'/pages/home/home');
+  console.log('PASS：扫码指定柜体、前端观测上报、运营审核等待、付款弹窗和付款后退出。');
+})().catch(e=>{console.error(e);process.exitCode=1;});

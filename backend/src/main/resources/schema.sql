@@ -56,3 +56,14 @@ CREATE TABLE IF NOT EXISTS rfid_initialized (cabinet_id VARCHAR(40) PRIMARY KEY)
 CREATE TABLE IF NOT EXISTS cabinet_locks (
  cabinet_id VARCHAR(40) PRIMARY KEY, locked BOOLEAN NOT NULL DEFAULT TRUE
 );
+-- 单独建表，升级既有 H2/MySQL 数据时不覆盖历史订单。
+CREATE TABLE IF NOT EXISTS product_profiles (
+ product_id VARCHAR(40) PRIMARY KEY, image_url VARCHAR(500), weight_priority BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE TABLE IF NOT EXISTS cabinet_audits (
+ session_id VARCHAR(40) PRIMARY KEY, before_json LONGTEXT NOT NULL, after_json LONGTEXT,
+ checkout_route VARCHAR(24), decision_note VARCHAR(500), reviewed_at BIGINT
+);
+CREATE TABLE IF NOT EXISTS consumer_sessions (
+ token_hash VARCHAR(64) PRIMARY KEY, user_id VARCHAR(80) NOT NULL
+);

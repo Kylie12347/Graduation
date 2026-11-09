@@ -9,5 +9,5 @@ Page({
       this.setData({ orders: orders.map(o => ({ ...o, label: states[o.state], amount: money(o.total_cents), shortId: o.id.slice(0, 8), date: new Date(o.created_at).toLocaleString() })) });
     } catch (e) { message(e); }
   },
-  detail(e) { wx.navigateTo({ url: '/pages/shopping/shopping?id=' + encodeURIComponent(e.currentTarget.dataset.session) + '&readOnly=1' }); }
+  detail(e) { const { session, state } = e.currentTarget.dataset; wx.navigateTo({ url: '/pages/shopping/shopping?id=' + encodeURIComponent(session) + (['PAID','CANCELLED'].includes(state) ? '&readOnly=1' : '') }); }
 });

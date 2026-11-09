@@ -74,11 +74,18 @@ public class ShoppingService {
         var cabinet=s.one("SELECT c.door_open,COALESCE(l.locked,TRUE) AS locked FROM cabinets c LEFT JOIN cabinet_locks l ON l.cabinet_id=c.id WHERE c.id=?",session.get("cabinet_id"));
         session.put("doorOpen",cabinet.get("door_open"));
         session.put("cabinetLocked",cabinet.get("locked"));
+        session.put("cabinetName",s.one("SELECT name FROM cabinets WHERE id=?",session.get("cabinet_id")).get("name"));
+        var audits=s.jdbc().queryForList("SELECT checkout_route FROM cabinet_audits WHERE session_id=?",sessionId);
+        session.put("frontendSimulation",!audits.isEmpty());
         session.put("events",events);
         session.put("pendingCount",events.stream().filter(e->"PENDING".equals(e.get("status"))).count());
         try {session.put("items",basket(sessionId));session.put("basketError","");}
         catch(BusinessException e){session.put("items",List.of());session.put("basketError",e.getMessage());}
-        if(session.get("order_id")!=null) session.put("order",order((String)session.get("order_id"),user));
+        if(session.get("order_id")!=null) {
+            var current=order((String)session.get("order_id"),user);
+            session.put("order",current);
+            if(!audits.isEmpty()) session.put("items",current.get("items"));
+        }
         return session;
     }
     @Transactional
@@ -124,6 +131,8 @@ public class ShoppingService {
     public Map<String,Object> order(String orderId,Principal user) {
         Map<String,Object> o=new LinkedHashMap<>(s.one("SELECT * FROM orders WHERE id=?",orderId));
         if(!user.admin() && !user.userId().equals(o.get("user_id"))) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"无权查看该订单");
+        var routes=s.jdbc().queryForList("SELECT checkout_route FROM cabinet_audits WHERE session_id=?",o.get("session_id"));
+        o.put("checkoutRoute",routes.isEmpty()?"LEGACY":routes.get(0).get("checkout_route"));
         o.put("items",json.read((String)o.remove("items_json"),new TypeReference<List<OrderItem>>(){}));
         o.put("payments",s.jdbc().queryForList("SELECT * FROM payments WHERE order_id=? ORDER BY created_at",orderId));
         return o;
@@ -152,6 +161,7 @@ public class ShoppingService {
             if(updated!=1) throw new BusinessException("确认商品尚未配置到本柜，请联系管理员核对");
             s.log((String)order.get("cabinet_id"),item.productId(),"SALE",item.quantity(),orderId);
         }
+        s.jdbc().update("UPDATE rfid_items SET location='SOLD',held_session=NULL WHERE held_session=? AND location='OUTSIDE'",session.get("id"));
         s.jdbc().update("UPDATE orders SET state='PAID',paid_at=? WHERE id=?",now(),orderId);
         s.jdbc().update("UPDATE shopping_sessions SET state='PAID' WHERE id=?",session.get("id"));
         // 支付、销量、关门锁定和释放柜体在同一事务提交；失败不释放柜体。
@@ -166,6 +176,8 @@ public class ShoppingService {
         var session=s.lockSession((String)initial.get("session_id"));
         if("CANCELLED".equals(session.get("state"))) return order(orderId,user);
         if("PAID".equals(session.get("state"))) throw new BusinessException("已支付订单不能取消");
+        if(s.jdbc().queryForObject("SELECT COUNT(*) FROM cabinet_audits WHERE session_id=?",Integer.class,session.get("id"))>0)
+            throw new BusinessException("已提交的仿真会话请联系运营人员处理");
         if(!SimulatorService.held(s,(String)session.get("id")).values().stream().allMatch(n->n==0))
             throw new BusinessException("有商品在柜外，请管理员在仿真面板执行“全部归还并取消”");
         finishCancel(session,orderId);

@@ -18,9 +18,7 @@ Page({
       options.cabinetId || options.scene || ''
     );
 
-    if (id) {
-      getApp().globalData.pendingCabinetId = id;
-    }
+    if (id) getApp().globalData.pendingCabinetId = id;
   },
 
   onShow() {
@@ -67,6 +65,7 @@ Page({
 
     const app = getApp().globalData;
     const incoming = app.pendingCabinetId;
+    if (incoming) app.pendingCabinetId = '';
 
     try {
       const [cabinets, sessions] = await Promise.all([
@@ -78,8 +77,18 @@ Page({
         s => ['OPEN', 'REVIEW', 'UNPAID'].includes(s.state) && !(app.completedSessionIds || []).includes(s.id)
       );
 
+      if (incoming && this.visible) {
+        if (active && active.cabinet_id !== incoming) {
+          message(new Error('扫码的是 ' + incoming + '，请先完成 ' + active.cabinet_id + ' 的购物。'));
+        } else if (!this.data.opening) {
+          this.setData({ opening: true });
+          try { await this.connectCabinet(incoming); }
+          finally { this.setData({ opening: false }); }
+          return;
+        }
+      }
+
       const id =
-        incoming ||
         (active && active.cabinet_id) ||
         app.previewCabinetId ||
         app.boundCabinetId ||
@@ -118,7 +127,7 @@ Page({
             ? catalog.products.map(p => ({
                 ...p,
                 price: money(p.price_cents),
-                image: imageFor(p.id)
+                image: p.image_url || imageFor(p.id)
               }))
             : [],
           bound:
@@ -126,8 +135,8 @@ Page({
             app.boundCabinetId === catalog.cabinet.id,
           error: ''
         });
-        // 即使消费者停在首页，也能发现电脑仿真面板已经关柜。
-        if (active && ['REVIEW', 'UNPAID'].includes(active.state) && !this.navigating) {
+        // 首页轮询可感知运营审核完成。
+        if (active && active.state === 'UNPAID' && !this.navigating) {
           this.navigating = true;
           wx.navigateTo({
             url: '/pages/shopping/shopping?id=' + encodeURIComponent(active.id),
@@ -190,8 +199,6 @@ Page({
    */
   scan() {
     if (this.data.opening) return;
-    if (this.data.active) return this.resume();
-
     this.setData({ opening: true });
 
     try {
@@ -293,22 +300,14 @@ Page({
       '/cabinets/' + encodeURIComponent(id) + '/catalog'
     );
 
-    if (!catalog.cabinet.available) {
-      throw new Error('这台售货柜正在使用中，请稍后再试。');
-    }
-
     const app = getApp().globalData;
 
     app.boundCabinetId = catalog.cabinet.id;
     app.pendingCabinetId = '';
     app.previewCabinetId = '';
 
-    this.setData({
-      cabinet: catalog.cabinet,
-      bound: true
-    });
-
     await this.openCabinet(catalog.cabinet.id);
+    this.setData({ cabinet: catalog.cabinet });
   },
 
   /** 从柜体二维码启动后，点击开启已绑定的唯一柜体。 */
@@ -354,6 +353,10 @@ Page({
       }
     });
 
+    if (session.state === 'OPEN') {
+      wx.switchTab({ url: '/pages/simulation/simulation' });
+      return;
+    }
     wx.navigateTo({
       url:
         '/pages/shopping/shopping?id=' +
@@ -369,6 +372,7 @@ Page({
 
   resume() {
     if (!this.data.active) return;
+    if (this.data.active.state === 'OPEN') return wx.switchTab({ url: '/pages/simulation/simulation' });
 
     wx.navigateTo({
       url:
