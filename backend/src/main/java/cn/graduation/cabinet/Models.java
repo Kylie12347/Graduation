@@ -7,12 +7,15 @@ import java.util.Map;
 /** record是Java 17的不可变数据载体；请求参数、感知数据和返回值使用不同类型。 */
 public final class Models {
     private Models() {}
-    public record Product(String id, String name, int priceCents, int weightGrams, int thresholdQty, boolean enabled, String imageUrl, boolean weightPriority) {
-        public Product(String id,String name,int priceCents,int weightGrams,int thresholdQty,boolean enabled){this(id,name,priceCents,weightGrams,thresholdQty,enabled,null,false);}
+    public record Product(String id, String name, int priceCents, int weightGrams, int thresholdQty, boolean enabled, String imageUrl, boolean weightPriority, String category) {
+        public Product(String id,String name,int priceCents,int weightGrams,int thresholdQty,boolean enabled){this(id,name,priceCents,weightGrams,thresholdQty,enabled,null,false,defaultProductCategory(id));}
+    }
+    public static String defaultProductCategory(String id) {
+        return java.util.Set.of("COLA","JUICE","TEA","WATER").contains(id.toUpperCase(java.util.Locale.ROOT)) ? "drinks" : "snacks";
     }
     public record ProductInput(@NotBlank @Size(max=40) String id, @NotBlank @Size(max=100) String name,
         @Min(1) @Max(100000) int priceCents, @Min(1) @Max(100000) int weightGrams,
-        @Min(0) @Max(10000) int thresholdQty, boolean enabled, @Size(max=500) String imageUrl, boolean weightPriority) {}
+        @Min(0) @Max(10000) int thresholdQty, boolean enabled, @Size(max=500) String imageUrl, boolean weightPriority, @Pattern(regexp="drinks|snacks", message="请选择水饮或零食") String category) {}
     public record Login(@NotBlank @Size(max=40) String role, @Size(max=80) String userId, String password) {}
     public record OpenRequest(@NotBlank String cabinetId) {}
     public record CabinetInput(@NotBlank @Pattern(regexp="[A-Za-z0-9_-]{1,40}") String id,

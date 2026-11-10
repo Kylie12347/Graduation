@@ -37,28 +37,39 @@ async function render(){
   else await logsPage();
 }
 async function dashboard(){
-  const query=new URLSearchParams({cabinetId:state.dashboardCabinet});
+  const cabinetId=state.dashboardCabinet;
+  const query=new URLSearchParams({cabinetId});
   if(state.dashboardDate)query.set('date',state.dashboardDate);
   const d=await api('/admin/dashboard?'+query);
-  if(state.tab!=='dashboard')return;
+  if(state.tab!=='dashboard' || state.dashboardCabinet!==cabinetId)return;
   const peak=Math.max(...d.hourlyRevenue,1);
   $('#content').innerHTML=`<section class="hero"><div><span class="eyebrow">EVERY TRANSACTION TELLS A STORY</span><p><strong>看得见的库存，算得清的每一单。</strong></p><p>按支付成功时间统计 · 上海时区 · 不计入失败和取消订单</p></div><div><label>统计范围<select id="dashboard-cabinet"><option value="">全部售货柜</option>${selectCabinets(state.dashboardCabinet)}</select></label><label>查看营业日期<input id="business-date" type="date" value="${esc(d.date)}"></label></div></section>
     <section class="stats"><div class="stat"><span>当日营业额</span><strong>${money(d.revenueCents)}</strong><small>全部为模拟支付金额</small></div><div class="stat"><span>成功订单</span><strong>${d.paidOrders}<small> 单</small></strong><small>重复支付只记账一次</small></div><div class="stat"><span>售出商品</span><strong>${d.soldQuantity}<small> 件</small></strong><small>以模拟支付成功为准</small></div><div class="stat"><span>需要补货</span><strong>${d.lowStock.length}<small> 项</small></strong><small>另有 ${d.pendingEvents} 笔会话待运营审核</small></div></section>
     <div class="grid-two"><section class="panel"><div class="panel-head"><h2>24小时营业走势</h2><span class="subtle">元 / 小时</span></div><div class="chart">${d.hourlyRevenue.map((v,i)=>`<div class="chart-col" title="${i}时 ${money(v)}"><span class="bar" style="height:${Math.max(2,v/peak*135)}px"></span><small>${i%3===0?i+'时':''}</small></div>`).join('')}</div></section><section class="panel"><h2>补货提醒</h2>${d.lowStock.length?d.lowStock.map(r=>`<div class="alert-row"><b>${esc(r.name)}</b> · ${esc(r.cabinet_id)}<br>柜内剩余 ${r.on_hand} 件 / 预警线 ${r.threshold_qty} 件</div>`).join(''):'<p class="empty">库存充足，暂时无需补货</p>'}</section></div>
-    <div class="grid-two"><section class="panel"><h2>当日商品销售</h2>${table(['商品','售出件数','销售金额'],d.productSales.map(r=>[esc(r.name),r.quantity,money(r.amountCents)]))}</section><section class="panel"><h2>各柜经营对比</h2><p class="subtle">比较同一营业日的所有柜体，包含零销量柜。</p>${table(['柜体','营业额','订单数','售出件数'],d.comparison.map(c=>[esc(c.name)+' / '+esc(c.id),money(c.revenueCents),c.orders,c.units]))}</section></div>
+    <div class="${cabinetId ? '' : 'grid-two'}"><section class="panel"><h2>当日商品销售</h2>${table(['商品','售出件数','销售金额'],d.productSales.map(r=>[esc(r.name),r.quantity,money(r.amountCents)]))}</section>${cabinetId ? '' : `<section class="panel"><h2>各柜经营对比</h2><p class="subtle">比较同一营业日的所有柜体，包含零销量柜。</p>${table(['柜体','营业额','订单数','售出件数'],d.comparison.map(c=>[esc(c.name)+' / '+esc(c.id),money(c.revenueCents),c.orders,c.units]))}</section>`}</div>
     <section class="panel"><h2>实时库存 · 累计销售</h2>${inventoryTable(d.stocks)}</section>`;
   $('#business-date').onchange=e=>{state.dashboardDate=e.target.value;dashboard().catch(fail);};
   $('#dashboard-cabinet').onchange=e=>{state.dashboardCabinet=e.target.value;dashboard().catch(fail);};
 }
 function inventoryTable(rows){return table(['柜体 / 商品','实际柜内','待结算取出','累计已售','阈值','库存核对'],rows.map(r=>[`${esc(r.cabinet_id)} / ${esc(r.name)}`,`${r.on_hand} ${r.lowStock?'<span class="badge warn">需补货</span>':''}`,r.held,r.sold,r.threshold_qty,r.discrepancy?`<span class="error">差异 ${r.discrepancy} 件，需核对</span>`:'<span class="subtle">一致</span>']));}
+let followAudit = !state.auditCabinet;
+function latestAuditSession(rows) {
+  return rows.reduce((latest, row) => !latest || Number(row.created_at) > Number(latest.created_at) ? row : latest, null);
+}
 async function auditPage(){
+  if (followAudit) {
+    const latest = latestAuditSession(state.sessions);
+    state.auditCabinet = latest?.cabinet_id || '';
+    state.sessionId = latest?.id || '';
+  }
   const allowed=state.sessions.filter(s=>!state.auditCabinet || s.cabinet_id===state.auditCabinet);
   if(!allowed.some(s=>s.id===state.sessionId)) state.sessionId=allowed[0]?.id || '';
-  $('#content').innerHTML=`<section class="panel"><div class="panel-head"><h2>柜体二维码</h2><span class="subtle">用小程序首页的扫码按钮扫描。后台和小程序按同一个柜号关联。</span></div><div class="cabinet-grid">${state.cabinets.map(c=>`<article class="cabinet-card"><h3>${esc(c.name)} · ${esc(c.id)}</h3><p>${esc(c.location)} · ${c.door_open?'柜门打开':c.active_session?'等待结算':'可用'}</p><img class="cabinet-qr" alt="${esc(c.id)} 的开柜二维码" src="/api/cabinets/${encodeURIComponent(c.id)}/qr"><p><a href="/?cabinetId=${encodeURIComponent(c.id)}">查看此柜的会话</a></p></article>`).join('')}</div></section>
-    <section class="panel"><div class="panel-head"><h2>开关柜记录</h2><button id="refresh-audit">刷新会话</button></div>
-    <div class="form-grid"><label>柜体<select id="audit-cabinet"><option value="">全部柜体</option>${selectCabinets(state.auditCabinet)}</select></label><label>购物会话<select id="audit-session"><option value="">请选择会话</option>${allowed.map(s=>`<option value="${esc(s.id)}" ${state.sessionId===s.id?'selected':''}>${esc(s.cabinet_id)} / ${time(s.created_at)} / ${esc(names[s.state]||s.state)}</option>`).join('')}</select></label></div></section><div id="audit-detail"></div>`;
-  $('#audit-cabinet').onchange=e=>{state.auditCabinet=e.target.value;state.sessionId='';auditPage().catch(fail);};
-  $('#audit-session').onchange=e=>{state.sessionId=e.target.value;loadAudit().catch(fail);};
+  $('#content').innerHTML=`
+    <section class="panel"><div class="panel-head"><h2>开关柜记录</h2><div class="row"><button id="follow-audit">跟随最新开柜</button><button id="refresh-audit">刷新会话</button></div></div>
+    <p class="subtle">${followAudit?'正在跟随最新开柜':'正在查看指定柜体或历史会话'} · 小程序扫描内容为柜号的二维码后，按会话关联上报记录。</p><div class="form-grid"><label>柜体<select id="audit-cabinet"><option value="">全部柜体</option>${selectCabinets(state.auditCabinet)}</select></label><label>购物会话<select id="audit-session"><option value="">请选择会话</option>${allowed.map(s=>`<option value="${esc(s.id)}" ${state.sessionId===s.id?'selected':''}>${esc(s.cabinet_id)} / ${time(s.created_at)} / ${esc(names[s.state]||s.state)}</option>`).join('')}</select></label></div></section><div id="audit-detail"></div>`;
+  $('#follow-audit').onclick=()=>{followAudit=true;render().catch(fail);};
+  $('#audit-cabinet').onchange=e=>{followAudit=false;state.auditCabinet=e.target.value;state.sessionId='';auditPage().catch(fail);};
+  $('#audit-session').onchange=e=>{followAudit=false;state.sessionId=e.target.value;loadAudit().catch(fail);};
   $('#refresh-audit').onclick=()=>render().catch(fail);
   await loadAudit();
 }
@@ -86,8 +97,8 @@ async function loadAudit(){
   const photos=(z?.photos||[]).filter(p=>validPhoto(p.dataUrl));
   const cards=`<div class="audit-timeline">
     <article class="audit-message"><h3>开柜前 <small>${time(a.created_at)}</small></h3>
-    <p><b>重量：</b>${z?.beforeGrams??b.grams} 克 ${z?'':'（初始快照，等候小程序上报实测模拟值）'}</p>
-    <div><b>RFID：</b>${displayTags(z?.beforeTags||b.tags,b.tagProducts,goods)}</div>
+    <p><b>重量：</b>${z ? z.beforeGrams + ' 克' : '等待小程序提交'}</p>
+    <div><b>RFID：</b>${z ? displayTags(z.beforeTags,b.tagProducts,goods) : '等待小程序提交'}</div>
     <p><b>视觉：</b>${photos.length?'见下方时间序列的第一帧':'等待开关柜照片'}</p></article>
     <article class="audit-message after"><h3>关柜后 <small>${time(a.closed_at)}</small></h3>
     ${z?`<p><b>重量：</b>${z.afterGrams} 克；净减少 ${z.beforeGrams-z.afterGrams} 克</p>
@@ -98,7 +109,7 @@ async function loadAudit(){
     <form id="audit-form"><div class="form-grid">${goods.map(g=>`<label>${esc(g.name)} · 开柜库存 ${g.on_hand}<input data-sku="${esc(g.id)}" type="number" min="0" max="${Math.min(g.on_hand,1000)}" value="0" required></label>`).join('')}</div>
     <label>审核依据<textarea name="note" maxlength="500" required placeholder="例如：照片清楚显示取出了橙汁，RFID 错记为可乐。"></textarea></label><button class="primary">提交审核结果</button></form></section>`:'';
   target.innerHTML=`<section class="panel"><div class="panel-head"><h2>${esc(a.cabinetName)} · ${esc(a.cabinet_id)}</h2>${badge(a.state)}</div>${cards}
-    ${photos.length?`<h3>视觉取放过程</h3><div class="audit-photos">${photos.map((p,i)=>`<figure><img src="${esc(p.dataUrl)}" alt="取放过程第 ${i+1} 帧"><figcaption>第 ${i+1} 帧 · ${time(p.timestamp)}</figcaption></figure>`).join('')}</div>`:''}
+    ${photos.length?`<h3>视觉对比 · 小程序上传照片</h3><div class="audit-photos">${photos.map((p,i)=>`<figure><img src="${esc(p.dataUrl)}" alt="取放过程第 ${i+1} 帧"><figcaption>${i===0?'开柜前（首帧）':i===photos.length-1?'关柜后（末帧）':'取放过程 · 第 '+(i+1)+' 帧'} · ${time(p.timestamp)}</figcaption></figure>`).join('')}</div>`:''}
     ${a.decisionNote?`<p><b>处理依据：</b>${esc(a.decisionNote)}</p>`:''}${a.order?.items?.length?table(['确认商品','数量','小计'],a.order.items.map(i=>[esc(i.name),i.quantity,money(i.subtotalCents)])):''}</section>${review}
     ${a.state==='OPEN'?'<section class="panel"><button id="abandon-session">结束未提交的空柜会话</button></section>':''}
     ${a.state==='UNPAID'?'<section class="panel"><h2>已归还商品</h2><form id="cancel-unpaid"><label>说明<input name="note" maxlength="500" required placeholder="核实商品已全部归还后填写"></label><button class="danger">确认归还并取消未付款订单</button></form></section>':''}`;
@@ -122,11 +133,22 @@ function productImage(p){
   const local={COLA:'cola',WATER:'water',TEA:'tea',JUICE:'juice',BISCUIT:'biscuit'};
   return /^https:\/\//i.test(p.imageUrl||'')?p.imageUrl:'/product-images/'+(local[p.id]||'generic')+'.png';
 }
+let productCategory = 'drinks';
+let inventoryCabinet = '';
 function productsPage(){
-  $('#content').innerHTML=`<section class="panel"><div class="panel-head"><h2>商品资料</h2><span class="subtle">金额单位：分；重量单位：克</span></div>${table(['图片','编号','商品','价格','重量','识别规则','状态','操作'],state.products.map(p=>[`<img class="product-preview" src="${esc(productImage(p))}" alt="">`,esc(p.id),esc(p.name),money(p.priceCents),p.weightGrams,p.weightPriority?'重量优先':'RFID + 视觉',p.enabled?'在售':'已下架',`<button data-edit="${esc(p.id)}">编辑</button> <button data-tags="${esc(p.id)}">RFID 标签</button>`]))}<hr><form id="product-form"><div class="form-grid"><label>SKU编号<input name="id" required maxlength="40" pattern="[A-Za-z0-9_-]+" placeholder="如 MILK"></label><label>商品名称<input name="name" required maxlength="100"></label><label>售价（分）<input name="priceCents" type="number" value="500" min="1" required></label><label>标称重量（克）<input name="weightGrams" type="number" value="250" min="1" required></label><label>商品图片（HTTPS）<input name="imageUrl" type="url" maxlength="500" placeholder="留空使用系统示意图"></label><label>特殊商品规则<select name="weightPriority"><option value="false">RFID + 视觉优先</option><option value="true">唯一重量候选优先</option></select></label><label>补货预警线<input name="thresholdQty" type="number" value="3" min="0" required></label><label>销售状态<select name="enabled"><option value="true">在售</option><option value="false">下架</option></select></label></div><button class="primary">新增 / 保存商品</button><span class="subtle"> 同一编号为编辑；下架保留历史记录。购物期间禁止改价。</span></form></section>
-    <section class="panel"><h2>库存与补货</h2>${inventoryTable(state.stocks)}<form id="restock-form"><div class="form-grid three"><label>柜体<select name="cabinetId">${selectCabinets()}</select></label><label>商品<select name="productId">${selectProducts()}</select></label><label>补货数量<input name="quantity" type="number" value="10" min="1" max="1000" required></label></div><button class="primary">确认补货入库</button></form></section>
+  if (!state.cabinets.some(c => c.id === inventoryCabinet)) {
+    inventoryCabinet = state.cabinets[0]?.id || '';
+  }
+  $('#content').innerHTML=`<section class="panel"><div class="panel-head"><div class="row"><h2>商品资料</h2><button data-product-category="drinks">水饮</button><button data-product-category="snacks">零食</button></div><span class="subtle">金额单位：分；重量单位：克</span></div>${table(['图片','编号','商品','价格','重量','识别规则','状态','操作'],state.products.filter(p=>p.category===productCategory).map(p=>[`<img class="product-preview" src="${esc(productImage(p))}" alt="">`,esc(p.id),esc(p.name),money(p.priceCents),p.weightGrams,p.weightPriority?'重量优先':'RFID + 视觉',p.enabled?'在售':'已下架',`<button data-edit="${esc(p.id)}">编辑</button> <button data-tags="${esc(p.id)}">RFID 标签</button>`]))}<hr><form id="product-form"><div class="form-grid"><label>SKU编号<input name="id" required maxlength="40" pattern="[A-Za-z0-9_-]+" placeholder="如 MILK"></label><label>商品名称<input name="name" required maxlength="100"></label><label>商品类别<select name="category" required><option value="">请选择类别</option><option value="drinks">水饮</option><option value="snacks">零食</option></select></label><label>售价（分）<input name="priceCents" type="number" value="500" min="1" required></label><label>标称重量（克）<input name="weightGrams" type="number" value="250" min="1" required></label><label>商品图片（HTTPS）<input name="imageUrl" type="url" maxlength="500" placeholder="留空使用系统示意图"></label><label>特殊商品规则<select name="weightPriority"><option value="false">RFID + 视觉优先</option><option value="true">唯一重量候选优先</option></select></label><label>补货预警线<input name="thresholdQty" type="number" value="3" min="0" required></label><label>销售状态<select name="enabled"><option value="true">在售</option><option value="false">下架</option></select></label></div><button class="primary">新增 / 保存商品</button><span class="subtle"> 同一编号为编辑；下架保留历史记录。购物期间禁止改价。</span></form></section>
+    <section class="panel"><div class="panel-head"><h2>库存与补货</h2><label>选择售货柜<select id="inventory-cabinet" form="restock-form" name="cabinetId" required><option value="" disabled ${inventoryCabinet?'':'selected'}>请选择售货柜</option>${selectCabinets(inventoryCabinet)}</select></label></div><div id="cabinet-stock"></div><form id="restock-form"><div class="form-grid three"><label>商品<select name="productId" required></select></label><label>补货数量<input name="quantity" type="number" value="10" min="1" max="1000" required></label></div><button class="primary" type="submit">确认补货入库</button></form></section>
     <section class="panel"><h2>新增虚拟柜体</h2><form id="cabinet-form"><div class="form-grid three"><label>柜体编号<input name="id" placeholder="CAB002" required pattern="[A-Za-z0-9_-]{1,40}"></label><label>柜体名称<input name="name" required maxlength="100"></label><label>位置<input name="location" required maxlength="200"></label></div><button>创建柜体</button></form></section>`;
-  $('#product-form').onsubmit=e=>{e.preventDefault();act(async()=>{const data=Object.fromEntries(new FormData(e.target));['priceCents','weightGrams','thresholdQty'].forEach(k=>data[k]=Number(data[k]));data.enabled=data.enabled==='true';data.weightPriority=data.weightPriority==='true';await api('/admin/products','POST',data);await render();toast('商品已保存');});};
+  document.querySelectorAll('[data-product-category]').forEach(button => {
+    const selected = button.dataset.productCategory === productCategory;
+    button.classList.toggle('primary', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    button.onclick = () => { productCategory = button.dataset.productCategory; productsPage(); };
+  });
+  $('#product-form').onsubmit=e=>{e.preventDefault();act(async()=>{const data=Object.fromEntries(new FormData(e.target));['priceCents','weightGrams','thresholdQty'].forEach(k=>data[k]=Number(data[k]));data.enabled=data.enabled==='true';data.weightPriority=data.weightPriority==='true';await api('/admin/products','POST',data);productCategory=data.category;await render();toast('商品已保存');});};
   document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const p=state.products.find(p=>p.id===b.dataset.edit);Object.entries(p).forEach(([k,v])=>{if($('#product-form').elements[k])$('#product-form').elements[k].value=v==null?'':String(v);});$('#product-form').scrollIntoView({behavior:'smooth'});});
   document.querySelectorAll('[data-tags]').forEach(b=>b.onclick=()=>act(async()=>{
     const p=state.products.find(p=>p.id===b.dataset.tags);
@@ -142,7 +164,17 @@ function productsPage(){
     };
     select.onchange=()=>fetchTags().catch(fail);await fetchTags();
   }));
-  $('#restock-form').onsubmit=e=>{e.preventDefault();act(async()=>{const data=Object.fromEntries(new FormData(e.target));data.quantity=Number(data.quantity);await api('/admin/restock','POST',data);await render();toast('补货完成，库存与入库流水已更新');});};
+  const cabinetSelect = $('#inventory-cabinet');
+  const restockForm = $('#restock-form');
+  const renderCabinetStock = () => {
+    const rows = state.stocks.filter(row => row.cabinet_id === inventoryCabinet);
+    $('#cabinet-stock').innerHTML = rows.length ? inventoryTable(rows) : '<p class="empty">当前柜体暂无库存记录</p>';
+    restockForm.elements.productId.innerHTML = rows.map(row => '<option value="' + esc(row.product_id) + '">' + esc(row.name) + '</option>').join('');
+    restockForm.querySelector('button[type="submit"]').disabled = !rows.length;
+  };
+  cabinetSelect.onchange = () => { inventoryCabinet = cabinetSelect.value; renderCabinetStock(); };
+  renderCabinetStock();
+  restockForm.onsubmit=e=>{e.preventDefault();act(async()=>{const data=Object.fromEntries(new FormData(e.target));data.quantity=Number(data.quantity);await api('/admin/restock','POST',data);await render();toast('补货完成，库存与入库流水已更新');});};
   $('#cabinet-form').onsubmit=e=>{e.preventDefault();act(async()=>{await api('/admin/cabinets','POST',Object.fromEntries(new FormData(e.target)));await render();toast('虚拟柜体已创建，请补货后使用');});};
 }
 const checkoutNames={DIRECT:'直接付款',WEIGHT_PRIORITY:'直接付款（重量优先）',ADMIN_REVIEW:'后台审核后付款',PENDING:'待审核 / 未结算',LEGACY:'历史流程'};
@@ -167,7 +199,27 @@ async function ordersPage(){
     $('#detail-dialog').showModal();
   }));
 }
-async function logsPage(){const rows=await api('/admin/inventory-logs');$('#content').innerHTML=`<section class="panel"><h2>最近200笔库存变化</h2><p class="subtle">取出/放回改变物理库存，支付销售只增加销量；二者分别记录。</p>${table(['时间','柜体','SKU','类型','件数','关联编号'],rows.map(r=>[time(r.created_at),esc(r.cabinet_id),esc(r.product_id),badge(r.kind),r.quantity,esc(r.reference_id?.slice(0,8)||'—')]))}</section>`;}
+let logsCabinet = '';
+async function logsPage() {
+  if (!state.cabinets.some(c => c.id === logsCabinet)) logsCabinet = state.cabinets[0]?.id || '';
+  const cabinet = logsCabinet;
+  $('#content').innerHTML = `<section class="panel"><div class="panel-head"><h2>库存流水</h2><label>选择售货柜<select id="logs-cabinet">${selectCabinets(cabinet)}</select></label></div><p class="subtle">显示所选柜体最近 200 笔库存流水。</p><div id="cabinet-logs" aria-live="polite"></div></section>`;
+  $('#logs-cabinet').onchange = e => { logsCabinet = e.target.value; logsPage().catch(fail); };
+  const target = $('#cabinet-logs');
+  if (!cabinet) { target.textContent = '暂无可查看的售货柜'; return; }
+  target.textContent = '正在加载库存流水…';
+  try {
+    const rows = await api('/admin/inventory-logs?cabinetId=' + encodeURIComponent(cabinet));
+    if (state.tab !== 'logs' || $('#cabinet-logs') !== target) return;
+    target.innerHTML = rows.length ? table(['时间','柜体','SKU','类型','件数','关联编号'],
+      rows.map(r => [time(r.created_at),esc(r.cabinet_id),esc(r.product_id),badge(r.kind),r.quantity,esc(r.reference_id?.slice(0,8)||'—')]))
+      : '<p class="empty">此柜暂无库存流水</p>';
+  } catch (error) {
+    if (state.tab !== 'logs' || $('#cabinet-logs') !== target) return;
+    target.textContent = '库存流水加载失败';
+    throw error;
+  }
+}
 // 更新会话选项；运营人员填写审核表时不重绘表单。
 let pollingAudit=false;
 setInterval(async()=>{
@@ -180,6 +232,11 @@ setInterval(async()=>{
     if(select!==$('#audit-session')||cabinet!==state.auditCabinet)return;
     const previous=state.sessions.find(s=>s.id===state.sessionId);
     state.sessions=rows;
+    const latest = followAudit ? latestAuditSession(rows) : null;
+    if (latest && latest.id !== state.sessionId && !busy && !$('#audit-form') && !$('#cancel-unpaid')) {
+      await auditPage();
+      return;
+    }
     const visible=rows.filter(s=>!cabinet||s.cabinet_id===cabinet);
     const current=visible.find(s=>s.id===state.sessionId);
     if(!current&&!state.sessionId&&visible.length){state.sessionId=visible[0].id;await auditPage();return;}

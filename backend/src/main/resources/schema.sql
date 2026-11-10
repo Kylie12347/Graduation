@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS cabinet_locks (
 CREATE TABLE IF NOT EXISTS product_profiles (
  product_id VARCHAR(40) PRIMARY KEY, image_url VARCHAR(500), weight_priority BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE product_profiles ADD COLUMN IF NOT EXISTS category VARCHAR(10);
 CREATE TABLE IF NOT EXISTS cabinet_audits (
  session_id VARCHAR(40) PRIMARY KEY, before_json LONGTEXT NOT NULL, after_json LONGTEXT,
  checkout_route VARCHAR(24), decision_note VARCHAR(500), reviewed_at BIGINT

@@ -39,18 +39,29 @@ public class AdminService {
             throw new BusinessException("有购物会话未结束，请完成支付/取消后再修改商品资料");
         String image=p.imageUrl()==null?"":p.imageUrl().trim();
         if(!image.isEmpty()&&!image.matches("https://[^\\s]+")) throw new BusinessException("商品图片请填写 HTTPS 链接");
+        String category = p.category();
+        if (category == null) {
+            category = s.products().stream().filter(product -> product.id().equals(p.id()))
+                .map(Product::category).findFirst().orElseThrow(() -> new BusinessException("请选择商品类别"));
+        }
         int updated=s.jdbc().update("UPDATE products SET name=?,price_cents=?,weight_grams=?,threshold_qty=?,enabled=? WHERE id=?",p.name(),p.priceCents(),p.weightGrams(),p.thresholdQty(),p.enabled(),p.id());
         if(updated==0) {
             s.jdbc().update("INSERT INTO products VALUES(?,?,?,?,?,?)",p.id(),p.name(),p.priceCents(),p.weightGrams(),p.thresholdQty(),p.enabled());
             for(var c:cabinets()) s.jdbc().update("INSERT INTO stocks(cabinet_id,product_id,on_hand,supplied) VALUES(?,?,0,0)",c.get("id"),p.id());
         }
-        if(s.jdbc().update("UPDATE product_profiles SET image_url=?,weight_priority=? WHERE product_id=?",image,p.weightPriority(),p.id())==0)
-            s.jdbc().update("INSERT INTO product_profiles(product_id,image_url,weight_priority) VALUES(?,?,?)",p.id(),image,p.weightPriority());
+        if(s.jdbc().update("UPDATE product_profiles SET image_url=?,weight_priority=?,category=? WHERE product_id=?",image,p.weightPriority(),category,p.id())==0)
+            s.jdbc().update("INSERT INTO product_profiles(product_id,image_url,weight_priority,category) VALUES(?,?,?,?)",p.id(),image,p.weightPriority(),category);
     }
     @Transactional
     public void createCabinet(CabinetInput c) {
         s.jdbc().update("INSERT INTO cabinets(id,name,location) VALUES(?,?,?)",c.id(),c.name(),c.location());
-        for(Product p:s.products()) s.jdbc().update("INSERT INTO stocks(cabinet_id,product_id,on_hand,supplied) VALUES(?,?,0,0)",c.id(),p.id());
+        final int initialQuantity = 10;
+        for (Product p : s.products()) {
+            s.jdbc().update("INSERT INTO stocks(cabinet_id,product_id,on_hand,supplied) VALUES(?,?,?,?)",
+                c.id(), p.id(), initialQuantity, initialQuantity);
+            s.log(c.id(), p.id(), "INITIAL", initialQuantity, null);
+        }
+        rfid.ensure(c.id());
     }
     @Transactional
     public void replenish(StockRequest r) {

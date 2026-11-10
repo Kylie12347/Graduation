@@ -146,7 +146,7 @@ class ShoppingIntegrationTest {
     }
     @Test void explicitSpecialProductCanUseUniqueWeightAndKeepsProductImage() throws Exception {
         var p=Map.of("id","SPECIAL","name","不规则重量样品","priceCents",850,"weightGrams",713,"thresholdQty",1,"enabled",true,
-            "weightPriority",true,"imageUrl","https://example.test/sample.jpg");
+            "weightPriority",true,"imageUrl","https://example.test/sample.jpg","category","snacks");
         call("/admin/products",admin,p);
         call("/admin/restock",admin,Map.of("cabinetId","CAB001","productId","SPECIAL","quantity",2));
         String s=open("CAB001");

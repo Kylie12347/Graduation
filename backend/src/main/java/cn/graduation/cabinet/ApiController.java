@@ -64,7 +64,13 @@ public class ApiController {
         if(route!=null&&!route.isBlank()){sql+=" AND (CASE WHEN a.session_id IS NULL THEN 'LEGACY' ELSE COALESCE(a.checkout_route,'PENDING') END)=?";args.add(route);}
         return s.jdbc().queryForList(sql+" ORDER BY o.created_at DESC LIMIT 200",args.toArray());
     }
-    @GetMapping("/admin/inventory-logs") public Object logs(){return s.jdbc().queryForList("SELECT * FROM inventory_logs ORDER BY created_at DESC LIMIT 200");}
+    @GetMapping("/admin/inventory-logs")
+    public Object logs(@RequestParam(required=false) String cabinetId) {
+        if (cabinetId == null || cabinetId.isBlank()) {
+            return s.jdbc().queryForList("SELECT * FROM inventory_logs ORDER BY created_at DESC, id DESC LIMIT 200");
+        }
+        return s.jdbc().queryForList("SELECT * FROM inventory_logs WHERE cabinet_id=? ORDER BY created_at DESC, id DESC LIMIT 200", cabinetId);
+    }
     @PostMapping("/admin/products") public Object product(@Valid @RequestBody ProductInput r){admin.saveProduct(r);return Map.of("message","商品已保存");}
     @PostMapping("/admin/cabinets") public Object cabinet(@Valid @RequestBody CabinetInput r){admin.createCabinet(r);return Map.of("message","柜体已创建");}
     @PostMapping("/admin/restock") public Object restock(@Valid @RequestBody StockRequest r){admin.replenish(r);return Map.of("message","补货已入库");}

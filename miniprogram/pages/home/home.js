@@ -1,11 +1,20 @@
 const { request, money, message, states } = require('../../utils/api');
 const { imageFor, parseCabinetId } = require('../../utils/storefront');
 
+function groupProducts(products) {
+  const groups = [{ id: 'drinks', name: '水饮', products: [] }, { id: 'snacks', name: '零食', products: [] }];
+  products.forEach((product, sourceIndex) => {
+    groups.find(group => group.id === (product.category === 'drinks' ? 'drinks' : 'snacks')).products.push({ ...product, sourceIndex });
+  });
+  return groups;
+}
+
 Page({
   data: {
     cabinets: [],
     cabinet: null,
     products: [],
+    categories: groupProducts([]),
     active: null,
     bound: false,
     loading: false,
@@ -91,8 +100,7 @@ Page({
       const id =
         (active && active.cabinet_id) ||
         app.previewCabinetId ||
-        app.boundCabinetId ||
-        (cabinets[0] && cabinets[0].id);
+        app.boundCabinetId || '';
 
       let catalog = null;
 
@@ -105,31 +113,22 @@ Page({
       // catalog请求期间可能刚完成支付，再检查一次终态记录，阻止旧请求触发跳转。
       if (active && (app.completedSessionIds || []).includes(active.id)) active = null;
 
-      // 只有后端确认柜体存在后，才接受二维码中的柜号。
-      if (incoming && catalog) {
-        app.boundCabinetId = catalog.cabinet.id;
-
-        if (app.pendingCabinetId === incoming) {
-          app.pendingCabinetId = '';
-        }
-      }
-
-      app.previewCabinetId = '';
-
       if (this.visible) {
+        const products = catalog
+            ? catalog.products.map(p => ({
+                ...p,
+                price: money(p.price_cents),
+                image: p.image_url || imageFor(p.id)
+              }))
+            : [];
         this.setData({
           cabinets,
           active: active
             ? { ...active, label: states[active.state] }
             : null,
           cabinet: catalog ? catalog.cabinet : null,
-          products: catalog
-            ? catalog.products.map(p => ({
-                ...p,
-                price: money(p.price_cents),
-                image: p.image_url || imageFor(p.id)
-              }))
-            : [],
+          products,
+          categories: groupProducts(products),
           bound:
             !!catalog &&
             app.boundCabinetId === catalog.cabinet.id,
@@ -387,12 +386,16 @@ Page({
     });
   },
 
+  jumpCategory(e) {
+    const category = e.currentTarget.dataset.category;
+    if (category === 'drinks' || category === 'snacks') wx.pageScrollTo({ selector: '#category-' + category, duration: 280 });
+  },
+
   imageError(e) {
     const index = e.currentTarget.dataset.index;
 
-    this.setData({
-      ['products[' + index + '].image']: imageFor('')
-    });
+    const products = this.data.products.map((p, i) => i === Number(index) ? { ...p, image: imageFor('') } : p);
+    this.setData({ products, categories: groupProducts(products) });
   },
 
   refreshTap() {
