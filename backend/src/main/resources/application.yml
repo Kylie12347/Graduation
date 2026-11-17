@@ -23,3 +23,28 @@ app:
     url: ${VISION_API_URL:https://api.openai.com/v1/responses}
     key: ${VISION_API_KEY:}
     model: ${VISION_MODEL:}
+    proxy: ${VISION_HTTP_PROXY:}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: bailian
+app:
+  vision:
+    url: ${BAILIAN_VISION_URL:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
+    key: ${BAILIAN_API_KEY:}
+    model: ${BAILIAN_VISION_MODEL:qwen3-vl-plus}
+    proxy: ${BAILIAN_HTTP_PROXY:}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: zhipu
+app:
+  vision:
+    url: https://open.bigmodel.cn/api/paas/v4/chat/completions
+    key: ${ZHIPU_API_KEY:}
+    model: glm-4.6v-flash
+    proxy: ""

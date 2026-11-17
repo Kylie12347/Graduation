@@ -28,7 +28,7 @@
       </view>
       <view class="card">
         <view class="card-title">3. 视觉照片</view>
-        <view class="muted">按开柜、取放、关柜的顺序添加 2–6 张照片。时间按导入顺序记录；顺序有误时可上移。大模型只识别净取出的商品及数量。</view>
+        <view class="muted">每个取放动作上传两张手部照片，依次为动作前、动作后，共可上传 2、4 或 6 张。空手到持有商品表示取出，持有商品到空手表示放回。可上移调整顺序。单张原图最大 10 MB，提交前自动压缩。</view>
         <view class="frame" wx:for="{{photos}}" wx:key="timestamp">
           <image src="{{item.path}}" mode="aspectFill" />
           <view><view>第 {{index + 1}} 帧</view><view class="muted">{{item.label}}</view></view>

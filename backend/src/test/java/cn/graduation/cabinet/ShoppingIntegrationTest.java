@@ -68,7 +68,7 @@ class ShoppingIntegrationTest {
         }
         assertThat(ids).containsExactly("CAB001", "CAB002", "CAB003", "CAB004", "CAB005", "CAB006");
         assertThat(qrCodes).hasSize(6);
-        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(12);
+        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(10);
         var qr1=mvc.perform(get("/api/cabinets/CAB001/qr")).andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith("image/svg+xml")).andReturn().getResponse().getContentAsString();
         var qr2=mvc.perform(get("/api/cabinets/CAB002/qr")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(qr1).startsWith("<svg").isNotEqualTo(qr2);
@@ -77,7 +77,7 @@ class ShoppingIntegrationTest {
         assertThat(store.one("SELECT * FROM cabinets WHERE id='CAB001'").get("door_open")).isEqualTo(false);
         var a=call("/admin/sessions/"+s+"/audit",admin,null);
         assertThat(a.path("cabinetName").asText()).isEqualTo("校园二号柜");
-        assertThat(a.path("before").path("tags").size()).isEqualTo(40);
+        assertThat(a.path("before").path("tags").size()).isEqualTo(50);
         assertThat(a.has("after")).isFalse();
         mvc.perform(post("/api/sessions").header("Authorization","Bearer "+user).contentType(MediaType.APPLICATION_JSON).content("{\"cabinetId\":\"CAB001\"}")).andExpect(status().isConflict());
         mvc.perform(get("/api/sessions/"+s+"/simulation").header("Authorization","Bearer "+guest())).andExpect(status().isForbidden());
@@ -90,8 +90,8 @@ class ShoppingIntegrationTest {
         var result=perception.submit(s,auth.authenticate("Bearer "+user),observed,List.of(),v);
         String order=(String)result.get("order_id");
         assertThat(result.get("state")).isEqualTo("UNPAID");
-        assertThat(stock("on_hand","CAB002","COLA")).isEqualTo(11);
-        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(12);
+        assertThat(stock("on_hand","CAB002","COLA")).isEqualTo(9);
+        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(10);
         assertThat(perception.submit(s,auth.authenticate("Bearer "+user),observed,List.of(),v).get("order_id")).isEqualTo(order);
         assertThat(pay(order,"failed",false).path("state").asText()).isEqualTo("UNPAID");
         assertThat(pay(order,"success",true).path("checkoutRoute").asText()).isEqualTo("DIRECT");
@@ -112,7 +112,7 @@ class ShoppingIntegrationTest {
         var closed=perception.submit(s,auth.authenticate("Bearer "+user),observation,List.of(),v);
         String order=(String)closed.get("order_id");
         assertThat(closed.get("state")).isEqualTo("REVIEW");
-        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(12);
+        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(10);
         var adminPath="/api/admin/sessions/"+s+"/review";
         var body=mapper.writeValueAsString(new Review(List.of(new Line("JUICE",1)),"视觉序列中实际为橙汁"));
         mvc.perform(post(adminPath).header("Authorization","Bearer "+user).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
@@ -126,8 +126,8 @@ class ShoppingIntegrationTest {
         var paid=pay(order,"reviewed",true);
         assertThat(paid.path("checkoutRoute").asText()).isEqualTo("ADMIN_REVIEW");
         assertThat(paid.path("total_cents").asInt()).isEqualTo(500);
-        assertThat(stock("on_hand","CAB001","JUICE")).isEqualTo(5);
-        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(12);
+        assertThat(stock("on_hand","CAB001","JUICE")).isEqualTo(9);
+        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(10);
         assertThat(store.jdbc().queryForObject("SELECT COUNT(*) FROM rfid_items WHERE product_id='JUICE' AND location='SOLD'",Integer.class)).isEqualTo(1);
     }
     @Test void missingModelDoesNotInventVisualResultAndPhotosAreOrdered() throws Exception {
@@ -144,13 +144,30 @@ class ShoppingIntegrationTest {
         assertThat(call("/sessions/"+s,user,null).path("state").asText()).isEqualTo("CANCELLED");
         assertThat(store.one("SELECT * FROM cabinets WHERE id='CAB001'").get("active_session")).isNull();
     }
+    @Test void retryUsesSavedPhotosAndSettlesOnlyOnce() throws Exception {
+        String id = open("CAB001");
+        String png = "data:image/png;base64,iVBORw0KGgo=";
+        var photos = List.of(new Photo(2, png), new Photo(1, png));
+        var customer = auth.authenticate("Bearer " + user);
+        var operator = auth.authenticate("Bearer " + admin);
+        perception.submit(id, customer, report(id, "COLA", 330, photos), photos,
+            new VisionResult("MODEL_ZHIPU_429_1305", List.of()));
+        assertThat(perception.retryInput(id, operator).photos()).extracting(Photo::timestamp).containsExactly(1L, 2L);
+        assertThat(perception.applyVisionRetry(id, new VisionResult("UNCERTAIN", List.of()), operator).get("state")).isEqualTo("REVIEW");
+        var cola = new VisionResult("OK", List.of(new VisionItem("可乐", 1)));
+        assertThat(perception.applyVisionRetry(id, cola, operator).get("state")).isEqualTo("UNPAID");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> perception.applyVisionRetry(id, cola, operator))
+            .isInstanceOf(BusinessException.class);
+        assertThat(stock("on_hand", "CAB001", "COLA")).isEqualTo(9);
+    }
+
     @Test void explicitSpecialProductCanUseUniqueWeightAndKeepsProductImage() throws Exception {
-        var p=Map.of("id","SPECIAL","name","不规则重量样品","priceCents",850,"weightGrams",713,"thresholdQty",1,"enabled",true,
+        var p=Map.of("id","SPECIAL","name","不规则重量样品","priceCents",850,"weightGrams",793,"thresholdQty",1,"enabled",true,
             "weightPriority",true,"imageUrl","https://example.test/sample.jpg","category","snacks");
         call("/admin/products",admin,p);
         call("/admin/restock",admin,Map.of("cabinetId","CAB001","productId","SPECIAL","quantity",2));
         String s=open("CAB001");
-        var r=call("/sessions/"+s+"/perception",user,report(s,null,721,List.of()));
+        var r=call("/sessions/"+s+"/perception",user,report(s,null,801,List.of()));
         assertThat(r.path("state").asText()).isEqualTo("UNPAID");
         assertThat(r.path("order").path("checkoutRoute").asText()).isEqualTo("WEIGHT_PRIORITY");
         assertThat(r.path("order").path("items").get(0).path("imageUrl").asText()).isEqualTo("https://example.test/sample.jpg");
@@ -162,17 +179,17 @@ class ShoppingIntegrationTest {
         String body=mapper.writeValueAsString(new Report(330,0,List.of(foreign),List.of(),List.of()));
         mvc.perform(post("/api/sessions/"+s+"/perception").header("Authorization","Bearer "+user).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
         assertThat(call("/sessions/"+s+"/abandon",user,Map.of()).path("state").asText()).isEqualTo("CANCELLED");
-        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(12);
+        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(10);
         assertThat(call("/admin/sessions/"+s+"/audit",admin,null).has("after")).isFalse();
     }
     @Test void confirmedReturnCancelsUnpaidOrderAndRestoresStock() throws Exception {
         String s=open("CAB001");
         var v=new VisionResult("OK",List.of(new VisionItem("可乐",1)));
         var submitted=perception.submit(s,auth.authenticate("Bearer "+user),report(s,"COLA",330,List.of()),List.of(),v);
-        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(11);
+        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(9);
         var cancelled=call("/admin/sessions/"+s+"/cancel-unpaid",admin,new CancelReview("已核实商品放回柜中"));
         assertThat(cancelled.path("state").asText()).isEqualTo("CANCELLED");
-        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(12);
+        assertThat(stock("on_hand","CAB001","COLA")).isEqualTo(10);
         assertThat(stock("sold","CAB001","COLA")).isZero();
         assertThat(cancelled.path("order").path("id").asText()).isEqualTo(submitted.get("order_id"));
     }

@@ -39,6 +39,20 @@ public class ApiController {
         return perception.submit(id,principal,report,photos,detected);
     }
     @GetMapping("/admin/sessions/{id}/audit") public Object audit(@PathVariable String id,@RequestAttribute Principal principal){return perception.audit(id,principal);}
+    private final java.util.Set<String> visionRetries = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    @PostMapping("/admin/sessions/{id}/retry-vision")
+    public Object retryVision(@PathVariable String id, @RequestAttribute Principal principal) {
+        if (!principal.admin()) throw new BusinessException("仅运营人员可重新识别");
+        if (!visionRetries.add(id)) throw new BusinessException("该会话正在重新识别");
+        try {
+            var input = perception.retryInput(id, principal);
+            return perception.applyVisionRetry(id, vision.identify(input.photos(), input.names()), principal);
+        } finally {
+            visionRetries.remove(id);
+        }
+    }
+
     @PostMapping("/admin/sessions/{id}/review") public Object review(@PathVariable String id,@Valid @RequestBody PerceptionModels.Review request,@RequestAttribute Principal principal){return perception.review(id,request,principal);}
     @PostMapping("/admin/sessions/{id}/cancel-unpaid") public Object cancelUnpaid(@PathVariable String id,@Valid @RequestBody PerceptionModels.CancelReview request,@RequestAttribute Principal principal){return perception.cancelUnpaid(id,request,principal);}
     private void rejectNewFlow(String id){
@@ -55,7 +69,7 @@ public class ApiController {
     @GetMapping("/admin/dashboard") public Object dashboard(@RequestParam(required=false) String date,@RequestParam(required=false) String cabinetId){return admin.dashboard(date,cabinetId);}
     @GetMapping("/admin/rfid-items") public Object rfidItems(@RequestParam String cabinetId){return rfid.items(cabinetId);}
     @GetMapping("/admin/stocks") public Object stocks(){return admin.stocks();}
-    @GetMapping("/admin/sessions") public Object allSessions(){return s.jdbc().queryForList("SELECT ss.*,c.name AS cabinet_name FROM shopping_sessions ss JOIN cabinets c ON c.id=ss.cabinet_id ORDER BY CASE WHEN ss.state='REVIEW' THEN 0 ELSE 1 END,ss.created_at DESC LIMIT 200");}
+    @GetMapping("/admin/sessions") public Object allSessions(){return s.jdbc().queryForList("SELECT ss.*,c.name AS cabinet_name FROM shopping_sessions ss JOIN cabinets c ON c.id=ss.cabinet_id ORDER BY CASE WHEN ss.state='REVIEW' THEN 0 ELSE 1 END,ss.created_at DESC");}
     @GetMapping("/admin/orders") public Object allOrders(@RequestParam(required=false) String cabinetId,@RequestParam(required=false) String state,@RequestParam(required=false) String route){
         String sql="SELECT o.id,o.session_id,o.cabinet_id,o.state,o.total_cents,o.created_at,o.paid_at,CASE WHEN a.session_id IS NULL THEN 'LEGACY' ELSE COALESCE(a.checkout_route,'PENDING') END AS checkout_route FROM orders o LEFT JOIN cabinet_audits a ON a.session_id=o.session_id WHERE 1=1";
         List<Object> args=new ArrayList<>();

@@ -3,6 +3,45 @@ const { imageFor } = require('../../utils/storefront');
 const endpoint = id => '/sessions/' + encodeURIComponent(id);
 const key = id => 'simulation-' + id;
 const limit = 6;
+const maxOriginalBytes = 10 * 1024 * 1024;
+const maxEncodedLength = 449950;
+
+async function preparePhoto(file) {
+  if (file.size > maxOriginalBytes) throw new Error('每张照片最大支持 10 MB。');
+  const read = filePath => new Promise((resolve, reject) => {
+    wx.getFileSystemManager().readFile({ filePath, encoding: 'base64', success: result => resolve(result.data), fail: reject });
+  });
+
+  const source = file.tempFilePath;
+  let path = source;
+  let content = file.size <= 330000 ? await read(source) : '';
+  if (!content || content.length > maxEncodedLength) {
+    const info = await new Promise((resolve, reject) => {
+      wx.getImageInfo({ src: source, success: resolve, fail: reject });
+    });
+    for (const [edge, quality] of [[1600, 75], [1200, 60], [800, 50], [512, 45], [256, 40]]) {
+      const scale = Math.min(1, edge / Math.max(info.width, info.height));
+      const result = await new Promise((resolve, reject) => {
+        wx.compressImage({
+          src: source,
+          quality,
+          compressedWidth: Math.max(1, Math.round(info.width * scale)),
+          compressedHeight: Math.max(1, Math.round(info.height * scale)),
+          success: resolve,
+          fail: reject
+        });
+      });
+      path = result.tempFilePath;
+      content = await read(path);
+      if (content.length <= maxEncodedLength) break;
+    }
+  }
+
+  const type = content.startsWith('/9j/') ? 'jpeg' : content.startsWith('iVBORw0KGgo') ? 'png' : '';
+  if (!type) throw new Error('请选择 JPEG 或 PNG 照片。');
+  if (content.length > maxEncodedLength) throw new Error('照片压缩后仍然过大，请换一张照片。');
+  return { path, dataUrl: 'data:image/' + type + ';base64,' + content };
+}
 
 Page({
   data: { active: null, busy: false, before: '', after: '', errorGrams: '0', rows: [], shown: [], photos: [], filter: '', showAll: false, error: '' },
@@ -59,18 +98,10 @@ Page({
     if (this.data.busy || !this.frames || this.frames.length >= limit) return;
     this.setData({ busy: true });
     try {
-      const result = await new Promise((resolve, reject) => wx.chooseMedia({ count: limit - this.frames.length, mediaType: ['image'], sourceType: ['album', 'camera'], sizeType: ['compressed'], success: resolve, fail: reject }));
+      const result = await new Promise((resolve, reject) => wx.chooseMedia({ count: limit - this.frames.length, mediaType: ['image'], sourceType: ['album', 'camera'], sizeType: ['original'], success: resolve, fail: reject }));
       for (const file of result.tempFiles) {
-        let path = file.tempFilePath;
-        if (file.size > 330000) {
-          const compressed = await new Promise((resolve, reject) => wx.compressImage({ src: path, quality: 45, success: resolve, fail: reject }));
-          path = compressed.tempFilePath;
-        }
-        const content = await new Promise((resolve, reject) => wx.getFileSystemManager().readFile({ filePath: path, encoding: 'base64', success: r => resolve(r.data), fail: reject }));
-        const type = content.startsWith('/9j/') ? 'jpeg' : content.startsWith('iVBORw0KGgo') ? 'png' : '';
-        if (!type || content.length > 449950) throw new Error('请使用 330 KB 以下的 JPEG 或 PNG 照片。');
+        const { path, dataUrl } = await preparePhoto(file);
         const timestamp = Math.max(Date.now(), (this.frames[this.frames.length - 1]?.timestamp || 0) + 1);
-        const dataUrl = 'data:image/' + type + ';base64,' + content;
         this.frames.push({ path, timestamp, dataUrl });
       }
     } catch (e) { if (!/cancel/i.test(e.errMsg || '')) message(e); }
@@ -96,7 +127,7 @@ Page({
     const { active, before, after, errorGrams, rows } = this.data;
     const a = Number(before), b = Number(after), error = Number(errorGrams || 0);
     if (!before.trim() || !after.trim() || ![a, b, error].every(Number.isSafeInteger) || a < 0 || b < 0 || b + error < 0 || Math.abs(error) > 500) return message(new Error('请填写有效的整数重量，模拟误差范围为 −500 至 500 克。'));
-    if (this.frames.length === 1) return message(new Error('请至少提供两张按顺序排列的照片，或移除这张照片后交运营人员核对。'));
+    if (this.frames.length % 2 !== 0) return message(new Error('每个动作需要两张照片，请补齐动作前后照片，或移除未配对的照片。'));
     this.setData({ busy: true });
     try {
       const closed = await request(endpoint(active.id) + '/perception', 'POST', {

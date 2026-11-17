@@ -52,38 +52,52 @@ async function dashboard(){
   $('#dashboard-cabinet').onchange=e=>{state.dashboardCabinet=e.target.value;dashboard().catch(fail);};
 }
 function inventoryTable(rows){return table(['柜体 / 商品','实际柜内','待结算取出','累计已售','阈值','库存核对'],rows.map(r=>[`${esc(r.cabinet_id)} / ${esc(r.name)}`,`${r.on_hand} ${r.lowStock?'<span class="badge warn">需补货</span>':''}`,r.held,r.sold,r.threshold_qty,r.discrepancy?`<span class="error">差异 ${r.discrepancy} 件，需核对</span>`:'<span class="subtle">一致</span>']));}
-let followAudit = !state.auditCabinet;
-function latestAuditSession(rows) {
-  return rows.reduce((latest, row) => !latest || Number(row.created_at) > Number(latest.created_at) ? row : latest, null);
+const auditFinished = status => ['PAID', 'CANCELLED'].includes(status);
+let selectedAuditStatus;
+function clearAuditSelection() {
+  state.sessionId = '';
+  selectedAuditStatus = undefined;
+}
+const seenAuditSessions = new Set();
+function selectNewOpenSession(rows) {
+  const latest = rows.filter(session => session.state === 'OPEN' && !seenAuditSessions.has(session.id))
+    .sort((a, b) => Number(b.created_at) - Number(a.created_at))[0];
+  for (const session of rows) seenAuditSessions.add(session.id);
+  if (!latest) return false;
+  state.auditCabinet = latest.cabinet_id;
+  state.sessionId = latest.id;
+  selectedAuditStatus = latest.state;
+  return true;
 }
 async function auditPage(){
-  if (followAudit) {
-    const latest = latestAuditSession(state.sessions);
-    state.auditCabinet = latest?.cabinet_id || '';
-    state.sessionId = latest?.id || '';
-  }
+  if (!busy && !$('#audit-form') && !$('#cancel-unpaid')) selectNewOpenSession(state.sessions);
   const allowed=state.sessions.filter(s=>!state.auditCabinet || s.cabinet_id===state.auditCabinet);
-  if(!allowed.some(s=>s.id===state.sessionId)) state.sessionId=allowed[0]?.id || '';
+  const selected = allowed.find(s => s.id === state.sessionId);
+  if (!selected || (auditFinished(selected.state) && !auditFinished(selectedAuditStatus))) clearAuditSelection();
   $('#content').innerHTML=`
-    <section class="panel"><div class="panel-head"><h2>开关柜记录</h2><div class="row"><button id="follow-audit">跟随最新开柜</button><button id="refresh-audit">刷新会话</button></div></div>
-    <p class="subtle">${followAudit?'正在跟随最新开柜':'正在查看指定柜体或历史会话'} · 小程序扫描内容为柜号的二维码后，按会话关联上报记录。</p><div class="form-grid"><label>柜体<select id="audit-cabinet"><option value="">全部柜体</option>${selectCabinets(state.auditCabinet)}</select></label><label>购物会话<select id="audit-session"><option value="">请选择会话</option>${allowed.map(s=>`<option value="${esc(s.id)}" ${state.sessionId===s.id?'selected':''}>${esc(s.cabinet_id)} / ${time(s.created_at)} / ${esc(names[s.state]||s.state)}</option>`).join('')}</select></label></div></section><div id="audit-detail"></div>`;
-  $('#follow-audit').onclick=()=>{followAudit=true;render().catch(fail);};
-  $('#audit-cabinet').onchange=e=>{followAudit=false;state.auditCabinet=e.target.value;state.sessionId='';auditPage().catch(fail);};
-  $('#audit-session').onchange=e=>{followAudit=false;state.sessionId=e.target.value;loadAudit().catch(fail);};
+    <section class="panel audit-controls"><div class="panel-head"><h2>开关柜记录</h2><div class="row"><button id="refresh-audit">刷新会话</button></div></div>
+    <div class="audit-filters"><label>柜体<select id="audit-cabinet"><option value="">全部柜体</option>${selectCabinets(state.auditCabinet)}</select></label><label>购物会话<select id="audit-session"><option value="">请选择会话</option>${allowed.map(s=>`<option value="${esc(s.id)}" ${state.sessionId===s.id?'selected':''}>${esc(s.cabinet_id)} / ${time(s.created_at)} / ${esc(names[s.state]||s.state)}</option>`).join('')}</select></label></div></section><div id="audit-detail"></div>`;
+  $('#audit-cabinet').onchange=e=>{state.auditCabinet=e.target.value;clearAuditSelection();auditPage().catch(fail);};
+  $('#audit-session').onchange=e=>{state.sessionId=e.target.value;selectedAuditStatus=state.sessions.find(s=>s.id===state.sessionId)?.state;loadAudit().catch(fail);};
   $('#refresh-audit').onclick=()=>render().catch(fail);
   await loadAudit();
 }
-const visionStatus={OK:'识别完成',NEED_PHOTOS:'未提供足够照片',NOT_CONFIGURED:'未配置视觉模型',MODEL_ERROR:'模型调用或输出异常',UNCERTAIN:'照片不足以判断',NO_CATALOG:'本柜无在售商品'};
+const visionStatus={OK:'识别完成',NEED_PHOTOS:'照片不足或未成对',NOT_CONFIGURED:'未配置视觉模型',MODEL_ERROR:'模型调用或输出异常',MODEL_TRUNCATED:'模型输出被截断',MODEL_EMPTY_OUTPUT:'模型未返回识别内容',MODEL_INVALID_OUTPUT:'模型返回的内容无法解析',MODEL_BAD_REQUEST:'模型拒绝了图片或请求格式',MODEL_AUTH_ERROR:'模型密钥或访问权限有误',MODEL_NOT_FOUND:'模型或接口地址不可用',MODEL_QUOTA_EXHAUSTED:'模型 API 余额或额度不足',MODEL_RATE_OR_QUOTA:'模型请求过频或 API 额度不足',MODEL_ZHIPU_429_1113:'智谱账户欠费（1113）',MODEL_ZHIPU_429_1302:'智谱账户请求速度受限（1302）',MODEL_ZHIPU_429_1305:'智谱模型当前繁忙（1305）',MODEL_ZHIPU_429_1308:'智谱用量已达上限（1308）',MODEL_ZHIPU_429_1310:'智谱周期用量已达上限（1310）',MODEL_TIMEOUT:'连接模型超时',MODEL_CONNECTION_ERROR:'无法连接模型服务',UNCERTAIN:'照片不足以判断',NO_CATALOG:'本柜无在售商品'};
 function displayTags(tags, bindings, goods){
   const label=Object.fromEntries(goods.map(p=>[p.id,p.name]));
   return `<details><summary>查看 ${tags.length} 个 EPC</summary><div class="audit-tags">${tags.map(t=>`<div><b>${esc(label[bindings[t]]||bindings[t])}</b> · ${esc(t)}</div>`).join('')}</div></details>`;
 }
 async function loadAudit(){
   const target=$('#audit-detail'), id=state.sessionId;
-  if(!id){target.innerHTML='<p class="empty">这台柜暂时没有扫码会话。</p>';return;}
+  if(!id){target.innerHTML='<section class="panel audit-empty"><h3>请选择购物会话</h3><p>新开柜时会自动切到对应柜体。历史记录可在上方选择查看。</p></section>';return;}
   target.innerHTML='<p class="subtle">加载会话记录…</p>';
   const a=await api('/admin/sessions/'+encodeURIComponent(id)+'/audit');
   if(id!==state.sessionId || target!==$('#audit-detail')) return;
+  if (auditFinished(a.state) && !auditFinished(selectedAuditStatus)) {
+    clearAuditSelection();
+    return auditPage();
+  }
+  selectedAuditStatus = a.state;
   if(!a.before){
     target.innerHTML=`<section class="panel"><h2>历史会话 · ${esc(a.cabinet_id)}</h2><p>旧版会话未记录开关柜快照。</p>${!['PAID','CANCELLED'].includes(a.state)?'<button id="legacy-recover">归还旧版仿真商品并结束会话</button>':''}</section>`;
     const recover=$('#legacy-recover');
@@ -103,14 +117,22 @@ async function loadAudit(){
     <article class="audit-message after"><h3>关柜后 <small>${time(a.closed_at)}</small></h3>
     ${z?`<p><b>重量：</b>${z.afterGrams} 克；净减少 ${z.beforeGrams-z.afterGrams} 克</p>
     <p>重量候选：${z.weightCandidates.map(p=>esc(p.name)+' × '+p.quantity).join('、')||'无'}</p>
-    <div><b>RFID 净取出：</b>${qtyText(z.rfidItems)}；新增读到 ${z.addedTags.length} 个${displayTags(z.afterTags,b.tagProducts,goods)}</div>
-    <p><b>视觉：</b>${esc(visionStatus[z.vision.status]||z.vision.status)}${z.vision.items.length?' · '+z.vision.items.map(i=>esc(i.name)+' × '+i.quantity).join('、'):z.vision.status==='OK'?' · 无净取出':''}</p>`:'<p class="subtle">尚未收到关柜读数。</p>'}</article></div>`;
-  const review=z&&a.state==='REVIEW'?`<section class="panel"><h2>运营审核</h2><p>对照以上观测确定实际净取出量。所有数量填 0 表示确认无商品需结算。</p>
+    <div><b>RFID 单独推断（待融合）：</b>${qtyText(z.rfidItems)}；新增读到 ${z.addedTags.length} 个${displayTags(z.afterTags,b.tagProducts,goods)}</div>
+    <p><b>视觉：</b>${esc(visionStatus[z.vision.status]||(z.vision.status.startsWith('MODEL_ZHIPU_429_')?'智谱拒绝本次请求（错误码 '+z.vision.status.slice('MODEL_ZHIPU_429_'.length)+'）':z.vision.status))}${z.vision.items.length?' · '+z.vision.items.map(i=>esc(i.name)+' × '+i.quantity).join('、'):z.vision.status==='OK'?' · 无净取出':''}</p>${a.state==='REVIEW'
+      ? (photos.length>=2&&photos.length%2===0
+        ? '<button id="retry-vision">重新识别</button>'
+        : '<p class="subtle">没有成对的照片，无法重新识别。</p>')
+      : '<p class="subtle">当前会话已离开运营审核阶段，无法重新识别。请查看下方结算来源。</p>'}`:'<p class="subtle">尚未收到关柜读数。</p>'}</article></div>`;
+  const review=z&&a.state==='REVIEW'?`<section class="panel"><div class="panel-head"><h2>运营审核</h2></div><p>对照以上观测确定实际净取出量。所有数量填 0 表示确认无商品需结算。</p>
     <form id="audit-form"><div class="form-grid">${goods.map(g=>`<label>${esc(g.name)} · 开柜库存 ${g.on_hand}<input data-sku="${esc(g.id)}" type="number" min="0" max="${Math.min(g.on_hand,1000)}" value="0" required></label>`).join('')}</div>
     <label>审核依据<textarea name="note" maxlength="500" required placeholder="例如：照片清楚显示取出了橙汁，RFID 错记为可乐。"></textarea></label><button class="primary">提交审核结果</button></form></section>`:'';
-  target.innerHTML=`<section class="panel"><div class="panel-head"><h2>${esc(a.cabinetName)} · ${esc(a.cabinet_id)}</h2>${badge(a.state)}</div>${cards}
-    ${photos.length?`<h3>视觉对比 · 小程序上传照片</h3><div class="audit-photos">${photos.map((p,i)=>`<figure><img src="${esc(p.dataUrl)}" alt="取放过程第 ${i+1} 帧"><figcaption>${i===0?'开柜前（首帧）':i===photos.length-1?'关柜后（末帧）':'取放过程 · 第 '+(i+1)+' 帧'} · ${time(p.timestamp)}</figcaption></figure>`).join('')}</div>`:''}
-    ${a.decisionNote?`<p><b>处理依据：</b>${esc(a.decisionNote)}</p>`:''}${a.order?.items?.length?table(['确认商品','数量','小计'],a.order.items.map(i=>[esc(i.name),i.quantity,money(i.subtotalCents)])):''}</section>${review}
+  target.innerHTML=`<section class="panel audit-record"><div class="panel-head"><h2>${esc(a.cabinetName)} · ${esc(a.cabinet_id)}</h2>${badge(a.state)}</div>${cards}
+    ${photos.length?`<h3 class="audit-section-title">开关柜照片</h3><div class="audit-photos">${photos.map((p,i)=>`<figure><img src="${esc(p.dataUrl)}" alt="取放过程第 ${i+1} 帧"><figcaption>${i===0?'开柜前（首帧）':i===photos.length-1?'关柜后（末帧）':'取放过程 · 第 '+(i+1)+' 帧'} · ${time(p.timestamp)}</figcaption></figure>`).join('')}</div>`:''}
+    <div class="audit-outcome"><h3>结算记录</h3>
+    ${a.state==='REVIEW'?`<p><b>结算结果：</b>等待运营审核</p>`:''}
+    ${a.order?.checkoutRoute==='ADMIN_REVIEW'?'<p><b>确认来源：</b>运营人员审核</p>':a.order?.checkoutRoute==='DIRECT'?'<p><b>确认来源：</b>RFID 与视觉一致</p>':a.order?.checkoutRoute==='WEIGHT_PRIORITY'?'<p><b>确认来源：</b>特殊商品重量优先</p>':''}
+    ${a.decisionNote?`<p><b>${a.order?.checkoutRoute==='ADMIN_REVIEW'?'人工审核备注':'处理依据'}：</b>${esc(a.decisionNote)}</p>`:''}
+    ${a.order?.items?.length?table([a.order.checkoutRoute==='ADMIN_REVIEW'?'人工确认商品':'结算商品','数量','小计'],a.order.items.map(i=>[esc(i.name),i.quantity,money(i.subtotalCents)])):''}</div></section>${review}
     ${a.state==='OPEN'?'<section class="panel"><button id="abandon-session">结束未提交的空柜会话</button></section>':''}
     ${a.state==='UNPAID'?'<section class="panel"><h2>已归还商品</h2><form id="cancel-unpaid"><label>说明<input name="note" maxlength="500" required placeholder="核实商品已全部归还后填写"></label><button class="danger">确认归还并取消未付款订单</button></form></section>':''}`;
   const abandon=$('#abandon-session');
@@ -121,6 +143,20 @@ async function loadAudit(){
     await api('/admin/sessions/'+encodeURIComponent(id)+'/cancel-unpaid','POST',{note:cancel.elements.note.value.trim()});
     await render();toast('库存已恢复，订单已取消');
   });};
+  const retry = $('#retry-vision');
+  if (retry) retry.onclick = () => act(async () => {
+    retry.disabled = true;
+    retry.textContent = '正在重新识别…';
+    try {
+      const result = await api('/admin/sessions/'+encodeURIComponent(id)+'/retry-vision', 'POST');
+      await render();
+      toast(result.state === 'UNPAID' ? '识别一致，消费者可以付款' :
+        result.state === 'CANCELLED' ? '识别一致，无需付款' : '已更新视觉结果，请查看审核详情');
+    } finally {
+      retry.disabled = false;
+      retry.textContent = '重新识别';
+    }
+  });
   const form=$('#audit-form');
   if(form) form.onsubmit=e=>{e.preventDefault();act(async()=>{
     const items=[...form.querySelectorAll('[data-sku]')].filter(el=>Number(el.value)>0).map(el=>({ productId:el.dataset.sku,quantity:Number(el.value) }));
@@ -230,18 +266,21 @@ setInterval(async()=>{
     const cabinet=state.auditCabinet;
     const rows=await api('/admin/sessions');
     if(select!==$('#audit-session')||cabinet!==state.auditCabinet)return;
-    const previous=state.sessions.find(s=>s.id===state.sessionId);
     state.sessions=rows;
-    const latest = followAudit ? latestAuditSession(rows) : null;
-    if (latest && latest.id !== state.sessionId && !busy && !$('#audit-form') && !$('#cancel-unpaid')) {
+    if (!busy && !$('#audit-form') && !$('#cancel-unpaid') && selectNewOpenSession(rows)) {
       await auditPage();
       return;
     }
     const visible=rows.filter(s=>!cabinet||s.cabinet_id===cabinet);
     const current=visible.find(s=>s.id===state.sessionId);
-    if(!current&&!state.sessionId&&visible.length){state.sessionId=visible[0].id;await auditPage();return;}
-    select.innerHTML='<option value="">请选择会话</option>'+visible.map(s=>`<option value="${esc(s.id)}" ${s.id===state.sessionId?'selected':''}>${esc(s.cabinet_id)} / ${time(s.created_at)} / ${esc(names[s.state]||s.state)}</option>`).join('');
-    if(current&&previous&&current.state!==previous.state&&!$('#audit-form')&&!$('#cancel-unpaid'))await loadAudit();
+    if (state.sessionId && (!current || (auditFinished(current.state) && !auditFinished(selectedAuditStatus)))) {
+      clearAuditSelection();
+      await auditPage();
+      return;
+    }
+    const options='<option value="">请选择会话</option>'+visible.map(s=>`<option value="${esc(s.id)}" ${s.id===state.sessionId?'selected':''}>${esc(s.cabinet_id)} / ${time(s.created_at)} / ${esc(names[s.state]||s.state)}</option>`).join('');
+    if(select.dataset.options!==options){select.innerHTML=options;select.dataset.options=options;}
+    if(current && current.state!==selectedAuditStatus && !busy && !$('#audit-form') && !$('#cancel-unpaid')) await loadAudit();
   } catch(_){ /* 网络恢复后下一轮继续，保留已显示的会话与审核输入。 */ }
   finally{pollingAudit=false;}
 },3000);
@@ -249,7 +288,7 @@ function fail(e){toast(e.message || String(e));console.error(e);}
 let busy=false;
 async function act(fn){if(busy)return;busy=true;try{await fn();}catch(e){fail(e);}finally{busy=false;}}
 $('#login-form').onsubmit=async e=>{e.preventDefault();try{const data=await api('/auth/login','POST',{role:'ADMIN',password:$('#password').value},'');state.token=data.token;sessionStorage.setItem('adminToken',data.token);$('#login-error').textContent='';await render();}catch(err){$('#login-error').textContent=err.message;}};
-$('#nav').onclick=e=>{const b=e.target.closest('[data-tab]');if(b){state.tab=b.dataset.tab;render().catch(fail);}};
+$('#nav').onclick=e=>{const b=e.target.closest('[data-tab]');if(b){if(state.tab!==b.dataset.tab)clearAuditSelection();state.tab=b.dataset.tab;render().catch(fail);}};
 $('#refresh').onclick=()=>render().catch(fail);
 $('#logout').onclick=()=>{sessionStorage.removeItem('adminToken');state.token=null;showLogin();};
 $('#dialog-close').onclick=()=>$('#detail-dialog').close();

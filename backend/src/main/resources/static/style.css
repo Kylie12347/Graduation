@@ -8,3 +8,25 @@
 #rfid-items:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .cabinet-qr{width:148px;height:148px;display:block;background:white;border-radius:8px}
 .audit-timeline{display:grid;gap:12px;margin:16px 0}.audit-message{max-width:90%;width:fit-content;min-width:min(360px,100%);padding:14px 18px;background:#f2f7f2;border-radius:12px}.audit-message.after{justify-self:end;background:#eef3f8}.audit-message h3{margin:0 0 10px}.audit-message small{display:inline-block;margin-left:8px;color:#536962}.audit-message p{margin:8px 0}.audit-tags{max-height:160px;overflow:auto;font-size:.86rem;overflow-wrap:anywhere}.audit-photos{display:flex;flex-wrap:wrap;gap:12px}.audit-photos figure{margin:0;width:165px}.audit-photos img{width:100%;height:115px;object-fit:contain;background:#eef3f0;border-radius:8px}.audit-photos figcaption{font-size:.8rem}.product-preview{width:40px;height:40px;object-fit:contain}#detail-dialog{max-width:min(900px,95vw)}#dialog-text{padding-top:26px}#audit-form textarea{display:block;width:100%;min-height:70px;margin:10px 0;padding:8px}
+
+.audit-controls .panel-head { margin-bottom: 18px; }
+.audit-filters { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr); gap: 16px; }
+.audit-filters select { width: 100%; }
+.audit-empty { min-height: 175px; display: grid; align-content: center; text-align: center; border-style: dashed; }
+.audit-empty h3, .audit-empty p { margin: 4px 0; }
+.audit-empty p { color: #536962; }
+.audit-record .audit-timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.audit-record .audit-message { width: auto; min-width: 0; max-width: none; padding: 18px; border: 1px solid #dbe8df; }
+.audit-record .audit-message.after { justify-self: stretch; border-color: #dce7ef; }
+.audit-record .audit-message h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.audit-record .audit-message small { margin-left: 0; }
+.audit-section-title { margin: 24px 0 12px; }
+.audit-record .audit-photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.audit-record .audit-photos figure { width: auto; overflow: hidden; border: 1px solid #dbe8df; border-radius: 10px; }
+.audit-record .audit-photos img { display: block; height: clamp(140px, 20vw, 270px); border-radius: 0; }
+.audit-record .audit-photos figcaption { padding: 10px 12px; }
+.audit-outcome { margin-top: 22px; border-top: 1px solid #dbe8df; padding-top: 14px; }
+.audit-outcome h3 { margin: 0 0 10px; }
+@media (max-width: 700px) {
+  .audit-filters, .audit-record .audit-timeline { grid-template-columns: minmax(0, 1fr); }
+}

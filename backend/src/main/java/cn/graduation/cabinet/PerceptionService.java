@@ -85,15 +85,6 @@ class PerceptionService {
         if(!"OPEN".equals(session.get("state"))) return shopping.detail(id,user);
         var before=read(auditRow(id).get("before_json"));
         var goods=goods(before);
-        var skuByName=new HashMap<String,String>(); var ambiguous=new HashSet<String>();
-        for(var p:goods) if(skuByName.put((String)p.get("name"),(String)p.get("id"))!=null) ambiguous.add((String)p.get("name"));
-        var vis=new TreeMap<String,Integer>();
-        boolean reliable="OK".equals(vision.status()) || goods.isEmpty();
-        for(var item:vision.items()){
-            String sku=skuByName.get(item.name());
-            if(sku==null||ambiguous.contains(item.name())) reliable=false;
-            else vis.put(sku,item.quantity());
-        }
         var tagProducts=(Map<?,?>)before.get("tagProducts");
         var last=new HashSet<>(report.afterTags());
         var tagCounts=new TreeMap<String,Integer>();
@@ -103,6 +94,30 @@ class PerceptionService {
         for(var tag:missing) tagCounts.merge((String)tagProducts.get(tag),1,Integer::sum);
         int loss=report.beforeGrams()-report.afterGrams();
         var candidates=weightCandidates(loss,goods);
+        var decision = decide(vision, goods, tagCounts, added, loss, candidates);
+        var after=new LinkedHashMap<String,Object>();
+        after.put("beforeGrams",report.beforeGrams());after.put("afterGrams",report.afterGrams());
+        after.put("beforeTags",report.beforeTags());after.put("afterTags",report.afterTags());
+        after.put("rfidItems",tagCounts);after.put("missingTags",missing);after.put("addedTags",added);
+        after.put("vision",vision);after.put("photos",photos);after.put("weightCandidates",candidates);
+        s.jdbc().update("UPDATE cabinet_audits SET after_json=?,decision_note=? WHERE session_id=?",json.write(after),decision.reason(),id);
+        var closed=shopping.close(id,user);
+        if(decision.items()!=null) finalizeOrder(id,(String)closed.get("order_id"),(String)session.get("cabinet_id"),decision.items(),missing,decision.route(),decision.reason());
+        return shopping.detail(id,user);
+    }
+    private record Decision(Map<String,Integer> items, String route, String reason) {}
+
+    private Decision decide(VisionResult vision, List<Map<String,Object>> goods, Map<String,Integer> tagCounts,
+                            List<String> added, int loss, List<Map<String,Object>> candidates) {
+        var skuByName=new HashMap<String,String>(); var ambiguous=new HashSet<String>();
+        for(var p:goods) if(skuByName.put((String)p.get("name"),(String)p.get("id"))!=null) ambiguous.add((String)p.get("name"));
+        var vis=new TreeMap<String,Integer>();
+        boolean reliable="OK".equals(vision.status()) || goods.isEmpty();
+        for(var item:vision.items()){
+            String sku=skuByName.get(item.name());
+            if(sku==null||ambiguous.contains(item.name())) reliable=false;
+            else vis.put(sku,item.quantity());
+        }
         Map<String,Integer> chosen=null;
         String route="DIRECT";
         String reason="RFID 与视觉的商品或数量不一致，或视觉无法确认";
@@ -113,16 +128,49 @@ class PerceptionService {
         } else if(reliable && added.isEmpty() && tagCounts.equals(vis) && (!vis.isEmpty()||Math.abs(loss)<=20) && fits(vis,goods)){
             chosen=vis;reason="RFID 与视觉在商品及数量上完全一致";
         } else if(!added.isEmpty()) reason="关柜扫描出现开柜时未读到的标签，请核对";
-        var after=new LinkedHashMap<String,Object>();
-        after.put("beforeGrams",report.beforeGrams());after.put("afterGrams",report.afterGrams());
-        after.put("beforeTags",report.beforeTags());after.put("afterTags",report.afterTags());
-        after.put("rfidItems",tagCounts);after.put("missingTags",missing);after.put("addedTags",added);
-        after.put("vision",vision);after.put("photos",photos);after.put("weightCandidates",candidates);
-        s.jdbc().update("UPDATE cabinet_audits SET after_json=?,decision_note=? WHERE session_id=?",json.write(after),reason,id);
-        var closed=shopping.close(id,user);
-        if(chosen!=null) finalizeOrder(id,(String)closed.get("order_id"),(String)session.get("cabinet_id"),chosen,missing,route,reason);
-        return shopping.detail(id,user);
+        return new Decision(chosen, route, reason);
     }
+
+    record RetryInput(List<Photo> photos, List<String> names) {}
+
+    RetryInput retryInput(String id, Principal user) {
+        var audit = reviewableAudit(id, user, s.one("SELECT state FROM shopping_sessions WHERE id=?", id));
+        var after = read(audit.get("after_json"));
+        var photos = json.read(json.write(after.get("photos")), new TypeReference<List<Photo>>() {});
+        if (photos == null || photos.size() < 2 || photos.size() % 2 != 0)
+            throw new BusinessException("该会话没有可重新识别的成对照片");
+        var names = goods(read(audit.get("before_json"))).stream()
+            .map(p -> (String)p.get("name")).distinct().toList();
+        return new RetryInput(photos.stream().sorted(Comparator.comparingLong(Photo::timestamp)).toList(), names);
+    }
+
+    private Map<String,Object> reviewableAudit(String id, Principal user, Map<String,Object> session) {
+        if (!user.admin()) throw new BusinessException("仅运营人员可重新识别");
+        var audit = auditRow(id);
+        if (!"REVIEW".equals(session.get("state")) || audit.get("after_json") == null || audit.get("checkout_route") != null)
+            throw new BusinessException("当前会话已处理或无需审核，请刷新查看");
+        return audit;
+    }
+
+    @Transactional
+    @SuppressWarnings("unchecked")
+    public Map<String,Object> applyVisionRetry(String id, VisionResult vision, Principal user) {
+        var session = s.lockSession(id);
+        var audit = reviewableAudit(id, user, session);
+        var goods = goods(read(audit.get("before_json")));
+        var after = new LinkedHashMap<>(read(audit.get("after_json")));
+        int loss = number(after.get("beforeGrams")) - number(after.get("afterGrams"));
+        var decision = decide(vision, goods, (Map<String,Integer>)after.get("rfidItems"),
+            (List<String>)after.get("addedTags"), loss, weightCandidates(loss, goods));
+        after.put("vision", vision);
+        s.jdbc().update("UPDATE cabinet_audits SET after_json=?,decision_note=? WHERE session_id=?",
+            json.write(after), decision.reason(), id);
+        if (decision.items() != null)
+            finalizeOrder(id, (String)session.get("order_id"), (String)session.get("cabinet_id"),
+                decision.items(), (List<String>)after.get("missingTags"), decision.route(), decision.reason());
+        return shopping.detail(id, user);
+    }
+
     static int number(Object o){return ((Number)o).intValue();}
     static List<Map<String,Object>> weightCandidates(int loss,List<Map<String,Object>> goods){
         List<Map<String,Object>> candidates=new ArrayList<>();
